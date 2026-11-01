@@ -41,7 +41,7 @@ export const PresetsTab: React.FC<PresetsTabProps> = ({
   const [newPresetRf, setNewPresetRf] = useState(22);
   const [newPresetResolution, setNewPresetResolution] = useState<'4K' | '1080p' | '720p'>('1080p');
 
-  const categories = ['All', 'Apple Devices', 'General', 'Web', 'Matroska', 'Production', 'Custom'];
+  const categories = ['All', 'Enhancement Presets', 'Apple Devices', 'General', 'Web', 'Matroska', 'Production', 'Custom'];
 
   const filteredPresets = presets.filter((p) => {
     const matchesCat = selectedCategory === 'All' || p.category === selectedCategory;

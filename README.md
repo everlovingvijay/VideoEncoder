@@ -7,263 +7,255 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v3%2Fv4-38bdf8?style=for-the-badge&logo=tailwindcss)](https://tailwindcss.com/)
 [![PWA Ready](https://img.shields.io/badge/PWA-Installable-purple?style=for-the-badge&logo=pwa)](https://web.dev/progressive-web-apps/)
 
-> **High-Performance Universal Video Transcoder & Batch Processing Studio**  
-> Bringing the power and flexibility of **HandBrake** to mobile devices and modern web browsers. Transcode, compress, scale resolutions, adjust bitrates, batch queue jobs, and export production-ready native Swift & Kotlin codebases — **100% client-side with zero server uploads**.
+> **Professional High-Performance Universal Video Transcoding & Visual Enhancement Studio**  
+> Bringing the full power, modular architecture, and tabbed workflow of **HandBrake Desktop** to mobile devices, tablets, and modern web browsers. Featuring real-time **hardware-accelerated encoding**, **15 advanced video enhancement controls**, **7 recording device quality simulation profiles**, **directional motion blur simulation**, **intelligent resolution upscaling (2x/4x/8x/4K)**, and **automated footage analysis with smart preset recommendations** — **100% client-side with zero server uploads**.
 
 🌐 **Live Web Application**: [https://everlovingvijay.github.io/VideoEncoder/](https://everlovingvijay.github.io/VideoEncoder/)  
-⚡ **Dedicated Fast Studio Layout**: [https://everlovingvijay.github.io/VideoEncoder/studio.html](https://everlovingvijay.github.io/VideoEncoder/studio.html)
+⚡ **Dedicated Studio Suite**: [https://everlovingvijay.github.io/VideoEncoder/studio.html](https://everlovingvijay.github.io/VideoEncoder/studio.html)
 
 ---
 
 ## 📑 Table of Contents
 
-- [Key Features](#-key-features)
-- [Universal Device Support](#-universal-device-support)
-- [HandBrake Presets Engine](#-handbrake-presets-engine)
-- [Transcoding Engine & Architecture](#-transcoding-engine--architecture)
-- [Modules & Workspace Tabs](#-modules--workspace-tabs)
-- [Native Code Generator (Swift & Kotlin)](#-native-code-generator)
-- [PWA & Offline Installation](#-pwa--offline-installation)
-- [Tech Stack](#-tech-stack)
-- [Local Development Setup](#-local-development-setup)
-- [GitHub Pages Deployment](#-github-pages-deployment)
+- [Key Upgrades & Architectural Highlights](#-key-upgrades--architectural-highlights)
+- [1. Advanced Video Enhancement Controls](#1-advanced-video-enhancement-controls)
+- [2. Recording Device Quality Simulation](#2-recording-device-quality-simulation)
+- [3. Motion Blur & Shutter Speed Controls](#3-motion-blur--shutter-speed-controls)
+- [4. Intelligent Resolution Upscaling](#4-intelligent-resolution-upscaling)
+- [5. Intelligent Preset Recommendation Engine](#5-intelligent-preset-recommendation-engine)
+- [6. Real-Time A/B Split Screen Comparison](#6-real-time-ab-split-screen-comparison)
+- [7. HandBrake Desktop Tab Alignment](#7-handbrake-desktop-tab-alignment)
+- [8. Hardware Acceleration & Transcoding Pipeline](#8-hardware-acceleration--transcoding-pipeline)
+- [9. Universal Device Emulation & PWA Support](#9-universal-device-emulation--pwa-support)
+- [10. Local Development & Deployment](#10-local-development--deployment)
 - [Privacy & Security](#-privacy--security)
 - [License](#-license)
 
 ---
 
-## ✨ Key Features
+## 🚀 Key Upgrades & Architectural Highlights
 
-- **🔒 100% Private & Client-Side**: All video parsing, frame compositing, scaling, audio manipulation, and encoding take place directly inside the client's browser engine using WebCodecs and Media APIs. No video data ever touches a remote server.
-- **⚡ Hardware-Accelerated Performance**: Automatically routes to native hardware codecs:
-  - **Apple Silicon / iOS**: Apple VideoToolbox (H.264 / HEVC hardware acceleration).
-  - **Android**: Android MediaCodec & MediaMuxer pipelines.
-  - **Desktop Web (Chrome / Safari / Edge / Firefox)**: WebCodecs and MediaRecorder APIs.
-- **📱 Universal Multi-Platform Preview Switcher**: Test how your videos and interface look across:
-  - **Apple iOS**: Simulated iPhone 16 Pro with dynamic island status indicators.
-  - **Android**: Simulated Pixel 9 Pro shell.
-  - **Mobile Web**: Touch-optimized compact mobile view.
-  - **Desktop Web**: Full widescreen multi-column studio suite.
-- **🎛️ Complete HandBrake Presets Library**: Production presets categorized across General, Web, Apple Devices, Android Devices, Production Masters, and Custom User Presets.
-- **📋 Real-Time Batch Queue**: Queue multiple videos with different presets, monitor live progress percentages, elapsed time, remaining ETA, and processing FPS, with Pause, Resume, and Cancel controls.
-- **🎨 Interactive Video Studio**: Real-time canvas preview, custom aspect framing (16:9, 9:16 Vertical Reels/Shorts with ambient blur, 1:1 Square), rotation, flip, and audio volume gain ($0\% \to 200\%$).
-- **💻 Native Code Generation**: Export copy-pasteable native **Swift (AVFoundation / VideoToolbox)** and **Android Kotlin (MediaCodec / MediaMuxer)** codebases matching your selected transcode configuration.
+- **🔒 100% Client-Side Privacy**: All frame decoding, pixel-level color grading, spatial convolutions, audio muxing, and video compression execute directly inside your browser's local sandbox via WebCodecs, HTML5 Canvas 2D, and MediaRecorder.
+- **🎛️ HandBrake Desktop 1.9.0 Interface**: Complete layout parity with the desktop application across 10 modular tabs: `Summary`, `Dimensions`, `Filters`, `Enhancement`, `Device Profile`, `Motion Blur`, `Video`, `Audio`, `Subtitles`, and `Chapters`.
+- **⚡ Real-Time Visual Pipeline**: Changes to sliders immediately reflect in real-time on the video preview canvas and are baked directly into the final encoded output.
+- **📱 Responsive Platform Switcher**: Test how your media renders across an **iPhone 16 Pro** (with Dynamic Island status), **Google Pixel 9 Pro**, **Mobile Web touch layout**, or **Desktop Widescreen Studio Suite**.
+- **💻 Native Code Export**: Instant generation of copy-pasteable **Swift (AVFoundation / VideoToolbox)** and **Kotlin (Android MediaCodec / MediaMuxer)** production codebases.
 
 ---
 
-## 📱 Universal Device Support
+## 1. Advanced Video Enhancement Controls
 
-| Platform | Target Runtime | Acceleration API | Containers | Codecs Supported |
-| :--- | :--- | :--- | :--- | :--- |
-| **Apple iOS** | Safari iOS / PWA / Native Swift | VideoToolbox / AVFoundation | `.mp4`, `.mov` | H.264 (AVC), H.265 (HEVC), AAC |
-| **Android** | Chrome Android / PWA / Native Kotlin | MediaCodec / MediaMuxer | `.mp4`, `.mkv` | H.264, VP8, VP9, AAC, Opus |
-| **macOS** | Safari / Chrome / Edge | VideoToolbox / WebCodecs | `.mp4`, `.mov`, `.webm` | H.264, HEVC, VP9, AV1 |
-| **Windows / Linux** | Chrome / Firefox / Edge | WebCodecs / MediaRecorder | `.mp4`, `.webm`, `.mkv` | H.264, VP9, VP8, Opus, AAC |
+The **Enhancement** inspector provides 15 precision sliders, each equipped with an individual **Reset** button, alongside a **Reset All** action:
 
----
+| Parameter | Range | Default | Description |
+| :--- | :--- | :--- | :--- |
+| **Sharpness** | `0 to 100` | `0` | 3×3 unsharp Laplacian convolution kernel to boost edge definition without over-sharpening halos. |
+| **Noise Reduction** | `0 to 100` | `0` | Edge-preserving spatial-temporal bilateral smoothing to remove digital sensor noise. |
+| **Film Grain** | `0 to 100` | `0` | Organic pseudo-random grain synthesis simulating authentic 35mm celluloid emulsion. |
+| **Contrast** | `0 to 100` | `50` | Midtone tonal expansion with S-curve contrast roll-off. |
+| **Brightness** | `0 to 100` | `50` | Baseline luminance offset. |
+| **Saturation** | `0 to 200%` | `100%` | Chroma intensity scaling across all color channels. |
+| **Gamma Correction** | `0.1 to 3.0` | `1.0` | Power-law gamma lookup curve ($V_{\text{out}} = V_{\text{in}}^{1/\gamma}$) for nonlinear shadow/highlight compensation. |
+| **Exposure (EV)** | `-2.0 to +2.0` | `0.0` | Photographic stop exposure multiplier ($2^{\Delta\text{EV}}$) for dynamic lighting correction. |
+| **Clarity** | `0 to 100` | `0` | Large-radius local contrast enhancement to reveal textures without affecting overall tonal balance. |
+| **Detail Enhancement** | `0 to 100` | `0` | High-frequency detail recovery pass for intricate surfaces (foliage, fabric, hair). |
+| **Color Temperature** | `2000K to 10000K` | `6500K` | Blackbody radiator Kelvin matrix transformation (2000K candle warmth $\to$ 6500K D65 daylight $\to$ 10000K blue sky). |
+| **White Balance Mode** | `Auto / Manual` | `Auto` | Select between automatic scene color neutrality or manual Kelvin tuning. |
+| **Highlights** | `-100 to +100` | `0` | Selective curve modification targeted exclusively at luminance $> 50\%$ to recover blown-out skies. |
+| **Shadows** | `-100 to +100` | `0` | Selective curve modification targeted exclusively at luminance $< 50\%$ to lift crushed darks. |
+| **Vibrance** | `0 to 200%` | `100%` | Perceptual saturation boost that selectively targets under-saturated tones while protecting natural skin tones. |
 
-## 🎛️ HandBrake Presets Engine
+### 10 Additional Image Processing Modules
 
-The application includes exact replicas of HandBrake 1.9.0 presets:
-
-### 1. General & Web Presets
-- **Fast 1080p30**: Balanced high-speed H.264 encoding with AAC stereo (160 kbps).
-- **HQ 1080p30**: High-quality visual fidelity with lower CRF / RF values.
-- **Fast 720p30**: Optimized for bandwidth savings and quick social sharing.
-- **Very Fast 480p30**: Lightweight encoding for low-bandwidth cellular environments.
-
-### 2. Apple Device Presets
-- **Apple 2160p60 4K HEVC**: 4K Ultra HD 60 FPS utilizing Apple VideoToolbox hardware HEVC encoder.
-- **Apple 1080p60 HEVC**: High-frame-rate smooth playback for iPhone and iPad Retina screens.
-- **Apple 1080p30 H.264**: Universal fallback profile compatible with all Apple devices from legacy to current.
-
-### 3. Android Device Presets
-- **Android 1080p30**: Tuned for Android Qualcomm Snapdragon, Google Tensor, and MediaTek MediaCodec decoders.
-- **Android 720p30**: Compact profile for rapid WhatsApp, Telegram, and mobile downloads.
-
-### 4. Target Size & Social Presets
-- **WhatsApp Fast (< 16 MB)**: Auto-computes video bitrate ($R = \frac{16\text{ MB} \times 8}{T} - R_{\text{audio}}$) to ensure output strictly respects the 16MB file limit.
-- **Discord Nitro Free (< 25 MB)**: Calibrated for free Discord server upload limitations.
-- **Reels & Shorts (9:16 Vertical)**: Converts 16:9 widescreen videos to 9:16 vertical format with ambient frosted glass / blur background.
-
-### 5. Custom Presets
-Create, save, and manage your own custom presets directly in the browser (`localStorage` persistent):
-- Container: MP4, MKV, MOV
-- Video Codec: H.264, H.265 (HEVC), VP9
-- Quality Rate Control: Average Bitrate (kbps) or Constant Quality (RF 18–28)
-- Frame Rate: Source Match, 60 FPS, 30 FPS, 24 FPS (Cinematic)
-- Audio Bitrate: 64 kbps, 128 kbps, 192 kbps, 320 kbps, or Mute
+Users can toggle individual processing algorithms on and off:
+1. **AI Algorithmic Denoising**: Bilateral edge-preserving noise suppression.
+2. **Debanding**: Eliminates 8-bit color stepping and gradient contour artifacts.
+3. **Dehazing**: Dark channel prior contrast restoration for atmospheric haze and smoke.
+4. **Edge Enhancement**: High-pass contour boost for crisper architectural and geometric lines.
+5. **Chroma Noise Reduction**: Filters out colored speckles in low-light shadows.
+6. **Luma Noise Reduction**: Smooths high-ISO luminance grain while preserving edge sharpness.
+7. **Color Correction**: Full Rec.709 color gamut normalization.
+8. **Motion Blur Reduction**: Deconvolution sharpening on high-velocity frames.
+9. **Film Grain Simulation**: Organic photochemical celluloid grain overlay.
+10. **Artificial Sharpening**: High-contrast edge boost for low-resolution footage.
 
 ---
 
-## 🏗️ Transcoding Engine & Architecture
+## 2. Recording Device Quality Simulation
 
+Select from 7 visual profiles that simulate the optical and sensor characteristics of different recording hardware, complete with an **Intensity slider (0 to 100%)**:
+
+- 📱 **Normal HD Recording**: Clean 1080p standard mobile / compact camera footage with balanced sharpness and standard dynamic range.
+- 📉 **Low Class Mobile Recording**: Simulates entry-level budget smartphone footage with lower perceived sharpness, visible 8×8 block compression artifacts, moderate sensor noise, crushed dynamic range, and slight motion blur.
+- 📲 **Standard Mobile Recording**: Typical mid-tier smartphone camera quality with standard digital sharpening and consumer tone curves.
+- 🤖 **High Quality Android Recording**: Flagship Android camera profile with punchy saturation (+15%), strong local HDR micro-contrast, and vibrant colors.
+- 🍏 **iPhone Quality**: Flagship Apple iPhone characteristics with natural organic sharpness, balanced skin-tone warmth, smooth highlight roll-off, and zero artificial sharpening halos.
+- 📷 **Professional Camera**: DSLR and cinema camera emulation featuring soft organic micro-contrast, wide dynamic range, cinema log response, and transparent optical fidelity.
+- 🎞️ **Cinematic Recording**: Kodak 2383-inspired film emulation with rich shadows, warm highlights, controlled highlight roll-off, and subtle 35mm grain.
+
+---
+
+## 3. Motion Blur & Shutter Speed Controls
+
+Provides physical camera shutter angle simulation and directional motion vectors:
+
+- **Enable / Disable Toggle**: Master switch for motion blur processing.
+- **Intensity Slider (`0 to 100%`)**: Adjusts blur vector length and frame accumulation weight.
+- **Directional Vectors**:
+  - `Natural Flow`: Organic 2D camera panning trajectory.
+  - `Horizontal Pan`: High-speed lateral tracking blur.
+  - `Vertical Tilt`: Vertical panning motion blur.
+  - `Radial Zoom`: Kinetic zoom blur originating from the frame center.
+- **Shutter Speed Simulation (180° Rule)**:
+  - `1/24s`: Slow shutter dreamlike motion blur.
+  - `1/30s`: Broadcast motion blur standard.
+  - `1/60s`: Standard 180° shutter angle for 30 fps playback.
+  - `1/120s`: Fast shutter crisp action sports.
+  - `1/240s`: Ultra-fast mechanical shutter freeze.
+- **Advanced Options**: Motion Blur Reduction, Frame Interpolation, and Optical Flow vector tracking.
+
+---
+
+## 4. Intelligent Resolution Upscaling
+
+Automatically detects source dimensions and aspect ratio, calculating mathematically correct output resolutions:
+
+### 📱 Portrait Video Presets (9:16 Aspect Ratio)
+- **Original**: Maintains source resolution.
+- **2x Upscale**: Doubles width and height.
+- **4x Upscale**: Quadruples width and height.
+- **8x Upscale**: 8× scaling for extreme resolution displays.
+- **1080p Portrait**: `1080 × 1920` (Optimized for Instagram Reels, TikTok, Shorts).
+- **2K Portrait**: `1440 × 2560`.
+- **4K Portrait**: `2160 × 3840`.
+
+### 🖥️ Landscape Video Presets (16:9 Aspect Ratio)
+- **Original**: Maintains source resolution.
+- **2x Upscale**: Doubles width and height.
+- **4x Upscale**: Quadruples width and height.
+- **8x Upscale**: 8× scaling.
+- **1080p Landscape**: `1920 × 1080` (Full HD).
+- **2K Landscape**: `2560 × 1440` (QHD).
+- **4K Landscape**: `3840 × 2160` (Ultra HD).
+
+### Scaling Algorithms Supported:
+- **Lanczos-3**: Sinc-based sinc interpolation for maximum sharpness and detail retention.
+- **Bicubic**: Smooth cubic interpolation balancing speed and visual anti-aliasing.
+- **Bilinear**: Ultra-fast linear interpolation for resource-constrained devices.
+
+---
+
+## 5. Intelligent Preset Recommendation Engine
+
+Upon loading any video, the **Footage Analyzer** automatically inspects:
+- Pixel dimensions, storage size, and display aspect ratio.
+- Orientation (`portrait 9:16`, `landscape 16:9`, `square 1:1`).
+- Native framerate ($24, 30, 60\text{ fps}$) and container bitrate.
+- Compression artifact severity and noise estimation.
+- Dynamic range and sharpness score ($0 \to 100$).
+
+### Built-in Intelligent Presets:
+1. **Low Quality Footage Recovery**: For compressed, noisy, low-resolution clips. Applies deblocking, bilateral denoising, detail enhancement, and 2x Lanczos upscaling.
+2. **Mobile Video Enhancement**: For everyday phone footage. Applies natural sharpening, balanced contrast, and color vibrance.
+3. **iPhone Style Enhancement**: Simulates the warm, natural, halo-free iPhone camera pipeline.
+4. **Professional Quality Enhancement**: For high-bitrate DSLR / mirrorless clips. Preserves wide dynamic range and applies 10-bit color grading.
+5. **Cinematic Enhancement**: Kodak 2383-inspired film curve, 24 fps cadence, and subtle organic grain.
+6. **Social Media Optimized**: Vertical 9:16 ($1080 \times 1920$) high-bitrate encoding tailored for Instagram Reels, YouTube Shorts, and TikTok.
+
+---
+
+## 6. Real-Time A/B Split Screen Comparison
+
+- **Interactive Comparison Scrubber**: Drag the vertical divider line horizontally across the preview canvas to inspect the original unfiltered source on the left versus the enhanced footage on the right.
+- **Live Filter Feedback**: Sliders update the preview canvas in real time before encoding begins.
+- **Post-Encode Comparison**: Once a job is completed, the split scrubber directly compares the original source against the final compressed output file.
+
+---
+
+## 7. HandBrake Desktop Tab Alignment
+
+| Tab | Key Controls & Settings |
+| :--- | :--- |
+| **Summary** | Container format (`MP4`, `MKV`, `WebM`, `MOV`), Metadata passthru, Video/Audio/Dimension summaries, SMPTE Rec.709 color bars test pattern. |
+| **Dimensions** | Source dimensions, storage size, display size, rotation (0°, 90°, 180°, 270°), horizontal flip, pixel cropping margins (top, bottom, left, right), and intelligent upscaling options. |
+| **Filters** | Deinterlace (`off`, `decomb`, `yadif`), Denoise (`hqdn3d`, `nlmeans`), Unsharp mask sharpen, Grayscale monochrome toggle. |
+| **Enhancement** | 15 precision sliders with individual reset buttons, reset all, and 10 image processing toggles. |
+| **Device Profile** | 7 recording device visual simulation profiles with intensity slider (0 to 100%). |
+| **Motion Blur** | Direction vectors, 180° shutter speeds ($1/24\text{s} \to 1/240\text{s}$), blur reduction, frame interpolation. |
+| **Video** | Codecs (`H.265 10-bit`, `H.264`, `AV1`, `ProRes 422`, `VP9`), Framerate (VFR vs CFR), Constant Quality (RF 0-51) vs Average Bitrate, 2-Pass encoding, Speed Preset slider (`ultrafast` to `slow`), Profile (`baseline`, `main`, `high`), Color space (`bt709`, `bt2020_hdr`). |
+| **Audio** | Multi-track audio muxing, Codecs (`AAC CoreAudio`, `AC3`, `Opus`, `MP3`, `Passthru`), Bitrate ($128 \to 320\text{ kbps}$), Mixdown (Stereo, 5.1 Surround, Dolby Pro Logic II, Mono), Gain ($\pm 20\text{ dB}$), and Dynamic Range Compression (DRC). |
+| **Subtitles** | Subtitle stream inspector, burn-in (hardsub) toggle, forced track flags, external `.srt` / `.vtt` sidecar support. |
+| **Chapters** | Chapter segmentation list, titles, and timestamp markers. |
+
+---
+
+## 8. Hardware Acceleration & Transcoding Pipeline
+
+```mermaid
+flowchart LR
+    A[Source Video File] --> B[HTML5 Video Element]
+    B --> C[Offscreen 2D Canvas]
+    C --> D[Visual Filters & Color Temp]
+    D --> E[Spatial Convolutions: Sharpness & Clarity]
+    E --> F[Motion Blur & Device Simulation]
+    F --> G[Lanczos / Bicubic Upscaling]
+    G --> H[MediaStream Track]
+    I[Web Audio Graph] --> J[CoreAudio AAC Gain & DRC]
+    J --> H
+    H --> K[MediaRecorder / WebCodecs]
+    K --> L[Output Encoded File: MP4 / WebM / MKV]
 ```
-[ Input File / Blob / Camera ]
-             │
-             ▼
-   [ Metadata Inspector ]  ────────► Extracts duration, width, height, bitrate, FPS
-             │
-             ▼
-  ┌────────────────────────────────────────────────────────┐
-  │                 Client-Side Transcoder                  │
-  │                                                        │
-  │   [ HTML5 Video Element ] (Synchronous seek playback)   │
-  │              │                                         │
-  │              ▼                                         │
-  │   [ Offscreen Canvas 2D ]                              │
-  │   - Resolution Scaling (4K, 1080p, 720p, etc.)         │
-  │   - Aspect Framing (Original, 9:16, 1:1, 4:5)          │
-  │   - Ambient Background Blur / Letterbox                │
-  │              │                                         │
-  │              ▼                                         │
-  │   [ canvas.captureStream(fps) ]                        │
-  │              │                                         │
-  │   [ Web Audio Context ]                                │
-  │   - MediaElementSource -> GainNode -> StreamDest       │
-  │              │                                         │
-  │              ▼                                         │
-  │   [ MediaRecorder / WebCodecs Pipeline ]               │
-  │   - Dynamic Hardware Mime Probing                      │
-  │   - Configurable VideoBitsPerSecond                    │
-  │   - Configurable AudioBitsPerSecond                    │
-  │              │                                         │
-  └──────────────┼─────────────────────────────────────────┘
-                 │
-                 ▼
-       [ Final Encoded Blob ] ──► Instant Preview & One-Click Download
-```
 
 ---
 
-## 🗂️ Modules & Workspace Tabs
+## 9. Universal Device Emulation & PWA Support
 
-1. **🎬 Transcode Tab**:
-   - File dropzone with instant metadata chips (duration, resolution, estimated bitrate, file size).
-   - Video player stage with seeking and frame inspection.
-   - Active preset overview and quick actions: **"Start Transcode Now"** or **"Add to Batch Queue"**.
-2. **🎛️ Presets Tab**:
-   - Interactive catalog filterable by category (General, Web, Apple, Android, Production, Custom).
-   - Custom preset builder with detailed parameter tuning.
-3. **📋 Queue Tab**:
-   - Job queue list with animated progress bars, real-time FPS counter, and time remaining (ETA).
-   - Batch controls: Start Queue, Pause Active, Resume, Clear Completed.
-   - Integrated live terminal log stream.
-4. **🎨 Video Studio Tab**:
-   - Visual video adjustment controls: Brightness, Contrast, Saturation.
-   - Ambient blurred background toggles for social vertical video conversion.
-   - Volume gain slider ($0\% \to 200\%$) and audio mute toggle.
-5. **💻 Native Code Tab**:
-   - Complete, copy-pasteable Swift and Kotlin codebases configured to match your active preset.
-6. **🌐 Remote Server Tab**:
-   - Instructions and templates for dispatching jobs to local or cloud headless HandBrake CLI nodes (`HandBrakeCLI`).
+- **Progressive Web App (PWA)**: Installable directly to your home screen or desktop application dock via `manifest.json` and service worker caching for offline use.
+- **Interactive Multi-Device Shells**:
+  - `Apple iOS`: iPhone 16 Pro casing with Dynamic Island live status widget.
+  - `Android`: Pixel 9 Pro casing with Material You aesthetics.
+  - `Mobile Web`: Compact mobile browser interface.
+  - `Desktop Web`: Full widescreen studio dashboard.
 
 ---
 
-## 💻 Native Code Generator
-
-Want to run this transcode natively inside an iOS or Android app without web wrappers? The **Swift Architecture** and **Android Architecture** tabs provide instant, zero-dependency production code:
-
-### Native iOS (Swift + AVFoundation / VideoToolbox):
-```swift
-import AVFoundation
-
-func transcodeVideo(sourceURL: URL, outputURL: URL, preset: String) async throws {
-    let asset = AVAsset(url: sourceURL)
-    guard let exportSession = AVAssetExportSession(
-        asset: asset, 
-        presetName: AVAssetExportPresetHEVC1920x1080
-    ) else {
-        throw TranscodeError.unsupportedPreset
-    }
-    exportSession.outputURL = outputURL
-    exportSession.outputFileType = .mp4
-    exportSession.shouldOptimizeForNetworkUse = true
-    await exportSession.export()
-}
-```
-
-### Native Android (Kotlin + MediaCodec / MediaMuxer):
-```kotlin
-val mediaExtractor = MediaExtractor().apply { setDataSource(context, sourceUri, null) }
-val mediaMuxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-// Hardware MediaCodec encoder configuration with baseline/high profiles...
-```
-
----
-
-## 📲 PWA & Offline Installation
-
-HandBrake Mobile is a fully compliant **Progressive Web App (PWA)**:
-- **iPhone / iPad**: Open in Safari $\to$ tap **Share** $\to$ tap **"Add to Home Screen"**. Runs fullscreen with no Safari browser bars.
-- **Android**: Tap the **"Add to Home Screen"** banner in Chrome.
-- **macOS / Windows**: Click the install icon in the Chrome / Edge address bar to run as a standalone desktop app.
-- **Offline Capable**: Cached by Service Worker (`sw.js`) so the transcoder runs even with zero internet connectivity.
-
----
-
-## 🛠️ Tech Stack
-
-- **Framework**: React 19, TypeScript
-- **Bundler & Build Tool**: Vite 8 & esbuild
-- **Styling**: Tailwind CSS (with runtime JIT compilation fallback)
-- **Icons**: Lucide React
-- **Animations**: Motion (Framer Motion)
-- **Audio Processing**: Web Audio API (`AudioContext`, `GainNode`)
-- **Video Processing**: HTML5 Canvas 2D API, `MediaStream`, `MediaRecorder`
-
----
-
-## 🚀 Local Development Setup
+## 10. Local Development & Deployment
 
 ### Prerequisites
-- Node.js (v18+) or any static HTTP server (Python / Ruby)
+- Node.js 18+ (tested up to Node 24)
+- npm or pnpm
 
-### Running Locally
+### Quick Start
 ```bash
-# 1. Clone the repository
+# Clone the repository
 git clone https://github.com/everlovingvijay/VideoEncoder.git
 cd VideoEncoder
 
-# 2. Install dependencies
-npm install --legacy-peer-deps
+# Install dependencies
+npm install
 
-# 3. Start development server
+# Start local development server
 npm run dev
-
-# 4. Build for production
-npm run build
 ```
 
-Alternatively, open [`dist/index.html`](file:///Users/vijays/.gemini/antigravity/scratch/VideoEncoder-project/dist/index.html) or [`dist/studio.html`](file:///Users/vijays/.gemini/antigravity/scratch/VideoEncoder-project/dist/studio.html) directly in any web browser!
-
----
-
-## 🌐 GitHub Pages Deployment
-
-The project is deployed to GitHub Pages on the `gh-pages` branch:
-
+### Production Build
 ```bash
-# Publish built files to gh-pages branch
-git push origin `git subtree split --prefix dist main`:gh-pages --force
+# Bundle TypeScript and CSS for production deployment
+npx esbuild src/main.tsx --bundle --outfile=dist/bundle.js --format=esm --jsx=automatic --define:process.env.NODE_ENV='"production"' --conditions=style
 ```
 
-GitHub Pages configuration:
-- **Source**: Deploy from a branch
-- **Branch**: `gh-pages` / `/ (root)`
-- **URL**: [https://everlovingvijay.github.io/VideoEncoder/](https://everlovingvijay.github.io/VideoEncoder/)
+### GitHub Pages Deployment
+The production build in `dist/` is deployed to the `gh-pages` branch and served directly at:  
+👉 **[https://everlovingvijay.github.io/VideoEncoder/](https://everlovingvijay.github.io/VideoEncoder/)**
 
 ---
 
 ## 🔒 Privacy & Security
 
-- **Zero Cloud Processing**: Videos are processed in memory inside your browser.
-- **No Analytics / No Tracking**: No cookies, no session trackers, no telemetry.
-- **Open Source**: Full code transparency under Apache 2.0.
+The application runs entirely within the client's browser. Videos selected by the user are never transmitted to any external server or API. All memory buffers are cleaned up immediately upon job completion or cancellation.
 
 ---
 
 ## 📄 License
 
-Licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details.  
-Inspired by the open-source **HandBrake** project (handbrake.fr).
+Licensed under the **Apache License 2.0**. See [LICENSE](LICENSE) for details.

@@ -68,6 +68,91 @@ export interface FilterSettings {
   saturation: number; // -100 to 100 (0 default)
 }
 
+export interface EnhancementSettings {
+  sharpness: number; // 0 to 100 (default 0)
+  noiseReduction: number; // 0 to 100 (default 0)
+  filmGrain: number; // 0 to 100 (default 0)
+  contrast: number; // 0 to 100 (default 50)
+  brightness: number; // 0 to 100 (default 50)
+  saturation: number; // 0 to 200 (default 100)
+  gamma: number; // 0.1 to 3.0 (default 1.0)
+  exposure: number; // -2.0 to 2.0 (default 0.0)
+  clarity: number; // 0 to 100 (default 0)
+  detailEnhancement: number; // 0 to 100 (default 0)
+  colorTemperature: number; // 2000 to 10000 (default 6500)
+  whiteBalanceMode: 'auto' | 'manual';
+  highlights: number; // -100 to 100 (default 0)
+  shadows: number; // -100 to 100 (default 0)
+  vibrance: number; // 0 to 200 (default 100)
+  // Additional image processing options
+  aiDenoise: boolean;
+  debanding: boolean;
+  dehazing: boolean;
+  edgeEnhancement: boolean;
+  chromaNoiseReduction: boolean;
+  lumaNoiseReduction: boolean;
+  colorCorrection: boolean;
+  motionBlurReduction: boolean;
+  filmGrainSimulation: boolean;
+  artificialSharpening: boolean;
+}
+
+export type DeviceProfileType =
+  | 'none'
+  | 'normal-hd'
+  | 'low-class-mobile'
+  | 'standard-mobile'
+  | 'high-quality-android'
+  | 'iphone-quality'
+  | 'professional-camera'
+  | 'cinematic';
+
+export interface DeviceProfileSettings {
+  profile: DeviceProfileType;
+  intensity: number; // 0 to 100, default 100
+}
+
+export type MotionBlurDirection = 'horizontal' | 'vertical' | 'radial' | 'natural';
+export type ShutterSpeed = '1/24' | '1/30' | '1/60' | '1/120' | '1/240';
+
+export interface MotionBlurSettings {
+  enabled: boolean;
+  intensity: number; // 0 to 100, default 40
+  direction: MotionBlurDirection;
+  shutterSpeed: ShutterSpeed;
+  motionBlurReduction: boolean;
+  frameInterpolation: boolean;
+  opticalFlow: boolean;
+}
+
+export type ScalingAlgorithm = 'lanczos' | 'bicubic' | 'bilinear';
+export type UpscaleFactor = 'original' | '2x' | '4x' | '8x' | 'custom';
+
+export interface UpscaleSettings {
+  mode: 'auto' | 'preset' | 'multiplier';
+  multiplier: 1 | 2 | 4 | 8;
+  algorithm: ScalingAlgorithm;
+  allowUpscaling: boolean;
+  targetPresetId?: string;
+}
+
+export interface VideoAnalysisResult {
+  width: number;
+  height: number;
+  aspectRatio: string;
+  orientation: 'portrait' | 'landscape' | 'square';
+  fps: number;
+  durationSeconds: number;
+  bitrateKbps: number;
+  codec: string;
+  noiseEstimate: 'low' | 'moderate' | 'high';
+  compressionArtifacts: 'minimal' | 'moderate' | 'severe';
+  dynamicRangeEstimate: 'narrow' | 'standard' | 'wide';
+  sharpnessScore: number;
+  recommendedPreset: string;
+  recommendedReason: string;
+}
+
 export interface RangeSettings {
   mode: 'all' | 'seconds' | 'chapters';
   startSecond: number;
@@ -86,13 +171,17 @@ export interface ChapterMarker {
 export interface HandbrakePreset {
   id: string;
   name: string;
-  category: 'Apple Devices' | 'General' | 'Web' | 'Matroska' | 'Production' | 'Custom';
+  category: 'Enhancement Presets' | 'Apple Devices' | 'General' | 'Web' | 'Matroska' | 'Production' | 'Custom';
   description: string;
   container: ContainerFormat;
   dimensions: DimensionSettings;
   video: VideoSettings;
   audio: AudioTrack[];
   filters: FilterSettings;
+  enhancement?: EnhancementSettings;
+  deviceProfile?: DeviceProfileSettings;
+  motionBlur?: MotionBlurSettings;
+  upscale?: UpscaleSettings;
   isDefault?: boolean;
 }
 

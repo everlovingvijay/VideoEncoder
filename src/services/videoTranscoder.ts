@@ -1,4 +1,12 @@
 import { HandbrakePreset, LogEntry, QueueItem, VideoSource } from '../types/handbrake';
+import {
+  applyPixelEnhancements,
+  buildCanvasCssFilter,
+  DEFAULT_ENHANCEMENT,
+  DEFAULT_DEVICE_PROFILE,
+  DEFAULT_MOTION_BLUR,
+  DEFAULT_UPSCALE,
+} from './enhancementEngine';
 
 export interface TranscodeProgressCallback {
   (progress: {
@@ -102,13 +110,18 @@ export class VideoTranscoderService {
       video.crossOrigin = 'anonymous';
 
       const preset = job.preset;
-      const targetWidth = Math.min(preset.dimensions.width, 1920); // Cap browser output for smooth 60fps canvas performance
-      const targetHeight = Math.min(preset.dimensions.height, 1080);
+      const isPortrait = preset.dimensions.height > preset.dimensions.width;
+      const targetWidth = isPortrait
+        ? Math.min(preset.dimensions.width, 1080)
+        : Math.min(preset.dimensions.width, 1920);
+      const targetHeight = isPortrait
+        ? Math.min(preset.dimensions.height, 1920)
+        : Math.min(preset.dimensions.height, 1080);
 
       const canvas = document.createElement('canvas');
       canvas.width = targetWidth;
       canvas.height = targetHeight;
-      const ctx = canvas.getContext('2d', { willReadFrequently: false });
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
       if (!ctx) {
         reject(new Error('Canvas 2D context creation failed'));
@@ -232,6 +245,21 @@ export class VideoTranscoderService {
       if (filters.contrast !== 0) filterCss += `contrast(${100 + filters.contrast}%) `;
       if (filters.saturation !== 0) filterCss += `saturate(${100 + filters.saturation}%) `;
 
+      const enhancementCss = buildCanvasCssFilter(preset.enhancement, preset.deviceProfile);
+      if (enhancementCss && enhancementCss !== 'none') {
+        filterCss += (filterCss ? ' ' : '') + enhancementCss;
+      }
+
+      if (preset.enhancement) {
+        emitLog(`[enhancement] Engine active: Sharpness=${preset.enhancement.sharpness}, Denoise=${preset.enhancement.noiseReduction}, Temp=${preset.enhancement.colorTemperature}K, Grain=${preset.enhancement.filmGrain}`);
+      }
+      if (preset.deviceProfile && preset.deviceProfile.profile !== 'none') {
+        emitLog(`[simulation] Device Quality Profile applied: "${preset.deviceProfile.profile}" at ${preset.deviceProfile.intensity}% intensity`);
+      }
+      if (preset.motionBlur && preset.motionBlur.enabled) {
+        emitLog(`[motion-blur] Directional blur enabled: ${preset.motionBlur.direction} direction, shutter ${preset.motionBlur.shutterSpeed}`);
+      }
+
       video.onloadeddata = () => {
         totalDuration = video.duration || totalDuration;
         totalFrames = Math.max(1, Math.round(totalDuration * targetFps));
@@ -297,6 +325,16 @@ export class VideoTranscoderService {
         );
 
         ctx.restore();
+
+        // Apply pixel-level enhancement passes (Color temp, Gamma, Tone curve, Sharpness kernel, Film grain, Device simulation, Motion blur)
+        applyPixelEnhancements(
+          ctx,
+          targetWidth,
+          targetHeight,
+          preset.enhancement,
+          preset.deviceProfile,
+          preset.motionBlur
+        );
 
         framesEncoded++;
         const elapsed = (performance.now() - startTime) / 1000;

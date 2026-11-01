@@ -327,6 +327,7 @@ export default function App() {
             source={source}
             preset={activePreset}
             onSelectSource={(src) => setSource(src)}
+            onSelectPreset={(p) => setActivePreset(p)}
             onOpenPresetsModal={() => setActiveTab('presets')}
             onOpenStudioTab={() => setActiveTab('studio')}
             onStartEncodeNow={handleStartEncodeNow}
