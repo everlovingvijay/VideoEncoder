@@ -1,0 +1,6 @@
+{
+  "name": "HandBrake Mobile - Native iOS Video Transcoder",
+  "description": "High-performance native iOS video transcoder and batch encoder powered by HandBrake presets, Apple VideoToolbox architecture, and real client-side media compression.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
