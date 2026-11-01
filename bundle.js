@@ -19856,7 +19856,7 @@ var RemoteServerTab = () => {
 // src/App.tsx
 var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 function App() {
-  const [platform, setPlatform] = (0, import_react12.useState)("ios");
+  const [platform, setPlatform] = (0, import_react12.useState)("web");
   const [presets, setPresets] = (0, import_react12.useState)(() => {
     try {
       const saved = localStorage.getItem("hb_custom_presets");
