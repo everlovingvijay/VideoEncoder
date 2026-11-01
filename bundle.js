@@ -14576,8 +14576,746 @@ var import_client = __toESM(require_client(), 1);
 // src/App.tsx
 var import_react12 = __toESM(require_react(), 1);
 
+// src/services/enhancementEngine.ts
+var DEFAULT_ENHANCEMENT = {
+  sharpness: 0,
+  noiseReduction: 0,
+  filmGrain: 0,
+  contrast: 50,
+  brightness: 50,
+  saturation: 100,
+  gamma: 1,
+  exposure: 0,
+  clarity: 0,
+  detailEnhancement: 0,
+  colorTemperature: 6500,
+  whiteBalanceMode: "auto",
+  highlights: 0,
+  shadows: 0,
+  vibrance: 100,
+  aiDenoise: false,
+  debanding: false,
+  dehazing: false,
+  edgeEnhancement: false,
+  chromaNoiseReduction: false,
+  lumaNoiseReduction: false,
+  colorCorrection: false,
+  motionBlurReduction: false,
+  filmGrainSimulation: false,
+  artificialSharpening: false
+};
+var DEFAULT_DEVICE_PROFILE = {
+  profile: "none",
+  intensity: 100
+};
+var DEFAULT_MOTION_BLUR = {
+  enabled: false,
+  intensity: 40,
+  direction: "natural",
+  shutterSpeed: "1/60",
+  motionBlurReduction: false,
+  frameInterpolation: false,
+  opticalFlow: false
+};
+var DEFAULT_UPSCALE = {
+  mode: "auto",
+  multiplier: 1,
+  algorithm: "lanczos",
+  allowUpscaling: true
+};
+function kelvinToRgbMultipliers(kelvin) {
+  const temp = Math.max(2e3, Math.min(1e4, kelvin)) / 100;
+  let r, g, b;
+  if (temp <= 66) {
+    r = 255;
+    g = 99.4708025861 * Math.log(temp) - 161.1195681661;
+    b = temp <= 19 ? 0 : 138.5177312231 * Math.log(temp - 10) - 305.0447927307;
+  } else {
+    r = 329.698727446 * Math.pow(temp - 60, -0.1332047592);
+    g = 288.1221695283 * Math.pow(temp - 60, -0.0755148492);
+    b = 255;
+  }
+  const normR = Math.max(0.5, Math.min(1.8, Math.max(0, Math.min(255, r)) / 255 / 1));
+  const normG = Math.max(0.5, Math.min(1.8, Math.max(0, Math.min(255, g)) / 255 / 1));
+  const normB = Math.max(0.5, Math.min(1.8, Math.max(0, Math.min(255, b)) / 255 / 1));
+  return [normR, normG, normB];
+}
+function buildCanvasCssFilter(enhancement, deviceProfile) {
+  if (!enhancement && !deviceProfile) return "none";
+  const e = { ...DEFAULT_ENHANCEMENT, ...enhancement };
+  const d = { ...DEFAULT_DEVICE_PROFILE, ...deviceProfile };
+  let brightnessVal = 100 + (e.brightness - 50) * 1.2;
+  let contrastVal = 100 + (e.contrast - 50) * 1.5;
+  let saturationVal = e.saturation;
+  if (e.exposure !== 0) {
+    brightnessVal *= Math.pow(2, e.exposure);
+  }
+  if (d.profile !== "none") {
+    const factor = d.intensity / 100;
+    switch (d.profile) {
+      case "low-class-mobile":
+        contrastVal += 15 * factor;
+        saturationVal -= 20 * factor;
+        break;
+      case "standard-mobile":
+        contrastVal += 8 * factor;
+        saturationVal += 5 * factor;
+        break;
+      case "high-quality-android":
+        contrastVal += 12 * factor;
+        saturationVal += 18 * factor;
+        break;
+      case "iphone-quality":
+        contrastVal += 4 * factor;
+        saturationVal += 6 * factor;
+        break;
+      case "cinematic":
+        contrastVal += 15 * factor;
+        saturationVal -= 5 * factor;
+        break;
+      case "professional-camera":
+        contrastVal -= 5 * factor;
+        break;
+    }
+  }
+  const parts = [];
+  if (Math.abs(brightnessVal - 100) > 0.5) parts.push(`brightness(${Math.round(brightnessVal)}%)`);
+  if (Math.abs(contrastVal - 100) > 0.5) parts.push(`contrast(${Math.round(contrastVal)}%)`);
+  if (Math.abs(saturationVal - 100) > 0.5) parts.push(`saturate(${Math.round(saturationVal)}%)`);
+  return parts.length > 0 ? parts.join(" ") : "none";
+}
+var MotionBlurAccumulator = class {
+  constructor() {
+    this.historyCanvases = [];
+  }
+  apply(ctx, width, height, settings) {
+    if (!settings.enabled || settings.intensity <= 0) return;
+    const intensity = settings.intensity / 100;
+    const alpha = Math.min(0.7, 0.2 + intensity * 0.5);
+    if (this.historyCanvases.length === 0) {
+      const c = document.createElement("canvas");
+      c.width = width;
+      c.height = height;
+      this.historyCanvases.push(c);
+    }
+    const prevCanvas = this.historyCanvases[0];
+    if (prevCanvas.width !== width || prevCanvas.height !== height) {
+      prevCanvas.width = width;
+      prevCanvas.height = height;
+    }
+    let dx = 0;
+    let dy = 0;
+    const maxOffset = Math.round(intensity * 12);
+    switch (settings.direction) {
+      case "horizontal":
+        dx = maxOffset;
+        break;
+      case "vertical":
+        dy = maxOffset;
+        break;
+      case "radial":
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.5;
+        ctx.drawImage(prevCanvas, -dx, -dy, width + dx * 2, height + dy * 2);
+        ctx.restore();
+        break;
+      case "natural":
+      default:
+        dx = Math.round(maxOffset * 0.7);
+        dy = Math.round(maxOffset * 0.3);
+        break;
+    }
+    if (settings.direction !== "radial" && (dx !== 0 || dy !== 0)) {
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.4;
+      ctx.drawImage(prevCanvas, dx, dy);
+      ctx.drawImage(prevCanvas, -dx, -dy);
+      ctx.restore();
+    }
+    const prevCtx = prevCanvas.getContext("2d");
+    if (prevCtx) {
+      prevCtx.clearRect(0, 0, width, height);
+      prevCtx.drawImage(ctx.canvas, 0, 0);
+    }
+  }
+  reset() {
+    this.historyCanvases = [];
+  }
+};
+var motionBlurEngine = new MotionBlurAccumulator();
+function applyPixelEnhancements(ctx, width, height, enhancement, deviceProfile, motionBlur) {
+  const e = { ...DEFAULT_ENHANCEMENT, ...enhancement };
+  const d = { ...DEFAULT_DEVICE_PROFILE, ...deviceProfile };
+  const m = { ...DEFAULT_MOTION_BLUR, ...motionBlur };
+  if (m.enabled) {
+    motionBlurEngine.apply(ctx, width, height, m);
+  }
+  const needsPixelProcessing = e.colorTemperature !== 6500 || e.gamma !== 1 || e.highlights !== 0 || e.shadows !== 0 || e.vibrance !== 100 || e.sharpness > 0 || e.edgeEnhancement || e.artificialSharpening || e.filmGrain > 0 || e.filmGrainSimulation || e.clarity > 0 || e.detailEnhancement > 0 || e.debanding || e.dehazing || d.profile !== "none";
+  if (!needsPixelProcessing) return;
+  let imgData;
+  try {
+    imgData = ctx.getImageData(0, 0, width, height);
+  } catch (err) {
+    return;
+  }
+  const data = imgData.data;
+  const len = data.length;
+  const [rMult, gMult, bMult] = kelvinToRgbMultipliers(e.colorTemperature);
+  const gammaLut = new Uint8Array(256);
+  const invGamma = 1 / Math.max(0.1, e.gamma);
+  for (let i = 0; i < 256; i++) {
+    gammaLut[i] = Math.min(255, Math.max(0, Math.round(255 * Math.pow(i / 255, invGamma))));
+  }
+  const hlFactor = e.highlights / 100;
+  const shFactor = e.shadows / 100;
+  const vibranceFactor = (e.vibrance - 100) / 100;
+  let grainIntensity = e.filmGrain;
+  if (e.filmGrainSimulation) grainIntensity = Math.max(grainIntensity, 35);
+  if (d.profile === "cinematic") grainIntensity = Math.max(grainIntensity, 15 * (d.intensity / 100));
+  if (d.profile === "low-class-mobile") grainIntensity = Math.max(grainIntensity, 25 * (d.intensity / 100));
+  const isLowMobile = d.profile === "low-class-mobile";
+  const isIphone = d.profile === "iphone-quality";
+  const isCinematic = d.profile === "cinematic";
+  const profileIntensity = d.intensity / 100;
+  for (let i = 0; i < len; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+    if (e.colorTemperature !== 6500) {
+      r = Math.min(255, r * rMult);
+      g = Math.min(255, g * gMult);
+      b = Math.min(255, b * bMult);
+    }
+    if (e.gamma !== 1) {
+      r = gammaLut[r];
+      g = gammaLut[g];
+      b = gammaLut[b];
+    }
+    const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const normLuma = luma / 255;
+    if (hlFactor !== 0 && normLuma > 0.5) {
+      const hlWeight = (normLuma - 0.5) * 2;
+      const delta = hlFactor * 40 * hlWeight;
+      r = Math.min(255, Math.max(0, r + delta));
+      g = Math.min(255, Math.max(0, g + delta));
+      b = Math.min(255, Math.max(0, b + delta));
+    }
+    if (shFactor !== 0 && normLuma < 0.5) {
+      const shWeight = (0.5 - normLuma) * 2;
+      const delta = shFactor * 40 * shWeight;
+      r = Math.min(255, Math.max(0, r + delta));
+      g = Math.min(255, Math.max(0, g + delta));
+      b = Math.min(255, Math.max(0, b + delta));
+    }
+    if (vibranceFactor !== 0) {
+      const maxC = Math.max(r, Math.max(g, b));
+      const minC = Math.min(r, Math.min(g, b));
+      const sat = maxC === 0 ? 0 : (maxC - minC) / maxC;
+      const boost = (1 - sat) * vibranceFactor;
+      r = Math.min(255, Math.max(0, r + (r - luma) * boost));
+      g = Math.min(255, Math.max(0, g + (g - luma) * boost));
+      b = Math.min(255, Math.max(0, b + (b - luma) * boost));
+    }
+    if (isIphone && profileIntensity > 0) {
+      if (r > g && g > b) {
+        r = Math.min(255, r + 2 * profileIntensity);
+        g = Math.min(255, g + 1 * profileIntensity);
+      }
+    }
+    if (isCinematic && profileIntensity > 0) {
+      if (normLuma < 0.4) {
+        b = Math.min(255, b + 6 * profileIntensity * (1 - normLuma / 0.4));
+      } else if (normLuma > 0.6) {
+        r = Math.min(255, r + 5 * profileIntensity * ((normLuma - 0.6) / 0.4));
+      }
+    }
+    if (isLowMobile && profileIntensity > 0) {
+      const step = 4 * profileIntensity;
+      r = Math.round(r / step) * step;
+      g = Math.round(g / step) * step;
+      b = Math.round(b / step) * step;
+    }
+    if (grainIntensity > 0) {
+      const noise = (Math.random() - 0.5) * grainIntensity * 0.8;
+      r = Math.min(255, Math.max(0, r + noise));
+      g = Math.min(255, Math.max(0, g + noise));
+      b = Math.min(255, Math.max(0, b + noise));
+    }
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+  }
+  const sharpTotal = e.sharpness + (e.edgeEnhancement ? 25 : 0) + (e.artificialSharpening ? 35 : 0) + (e.clarity ? e.clarity * 0.4 : 0);
+  if (sharpTotal > 0 && width >= 4 && height >= 4) {
+    applySharpnessConvolution(data, width, height, Math.min(100, sharpTotal) / 100);
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+function applySharpnessConvolution(data, width, height, amount) {
+  const original = new Uint8ClampedArray(data);
+  const weight = amount * 0.75;
+  const centerWeight = 1 + 4 * weight;
+  for (let y = 1; y < height - 1; y++) {
+    const rowOffset = y * width * 4;
+    const prevRowOffset = (y - 1) * width * 4;
+    const nextRowOffset = (y + 1) * width * 4;
+    for (let x = 1; x < width - 1; x++) {
+      const px = rowOffset + x * 4;
+      const top = prevRowOffset + x * 4;
+      const bottom = nextRowOffset + x * 4;
+      const left = rowOffset + (x - 1) * 4;
+      const right = rowOffset + (x + 1) * 4;
+      for (let c = 0; c < 3; c++) {
+        const val = original[px + c] * centerWeight - (original[top + c] + original[bottom + c] + original[left + c] + original[right + c]) * weight;
+        data[px + c] = Math.min(255, Math.max(0, val));
+      }
+    }
+  }
+}
+
 // src/data/handbrakePresets.ts
 var DEFAULT_PRESETS = [
+  // --- Intelligent Enhancement Presets ---
+  {
+    id: "preset-low-quality-recovery",
+    name: "Low Quality Footage Recovery",
+    category: "Enhancement Presets",
+    description: "For low-resolution, noisy, highly compressed footage. Applies deblocking, artifact reduction, detail recovery, controlled sharpening, and 2x Lanczos upscaling.",
+    container: "mp4",
+    dimensions: {
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.265 (HEVC 10-bit)",
+      framerateMode: "cfr",
+      framerate: 30,
+      qualityMode: "rf",
+      rfValue: 18,
+      bitrateKbps: 8e3,
+      twoPass: true,
+      turboFirstPass: true,
+      encoderSpeedPreset: "medium",
+      encoderProfile: "main",
+      hardwareAcceleration: true,
+      tenBitColor: true,
+      colorSpace: "bt709"
+    },
+    audio: [
+      {
+        id: "aud-1",
+        name: "Stereo Audio",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 192,
+        mixdown: "Stereo",
+        gainDb: 1.5,
+        drc: 0.5
+      }
+    ],
+    filters: {
+      deinterlace: "decomb",
+      denoise: "hqdn3d",
+      denoiseStrength: "medium",
+      sharpen: "unsharp",
+      sharpenStrength: 45,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 5,
+      contrast: 10,
+      saturation: 5
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 40,
+      noiseReduction: 60,
+      contrast: 55,
+      brightness: 52,
+      clarity: 45,
+      detailEnhancement: 55,
+      exposure: 0.1,
+      aiDenoise: true,
+      debanding: true,
+      dehazing: true,
+      edgeEnhancement: true,
+      lumaNoiseReduction: true,
+      chromaNoiseReduction: true
+    },
+    deviceProfile: { profile: "none", intensity: 100 },
+    motionBlur: { ...DEFAULT_MOTION_BLUR, motionBlurReduction: true },
+    upscale: { mode: "multiplier", multiplier: 2, algorithm: "lanczos", allowUpscaling: true }
+  },
+  {
+    id: "preset-mobile-video-enhancement",
+    name: "Mobile Video Enhancement",
+    category: "Enhancement Presets",
+    description: "For ordinary smartphone recordings. Applies natural edge sharpening, mild noise suppression, balanced color vibrance, and clean contrast curve.",
+    container: "mp4",
+    dimensions: {
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.264 (VideoToolbox / AVC)",
+      framerateMode: "vfr",
+      framerate: 30,
+      qualityMode: "rf",
+      rfValue: 20,
+      bitrateKbps: 7e3,
+      twoPass: false,
+      turboFirstPass: false,
+      encoderSpeedPreset: "fast",
+      encoderProfile: "high",
+      hardwareAcceleration: true,
+      tenBitColor: false,
+      colorSpace: "bt709"
+    },
+    audio: [
+      {
+        id: "aud-1",
+        name: "Stereo AAC",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 160,
+        mixdown: "Stereo",
+        gainDb: 0,
+        drc: 0
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "unsharp",
+      sharpenStrength: 25,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 0,
+      contrast: 5,
+      saturation: 10
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 30,
+      noiseReduction: 25,
+      contrast: 53,
+      saturation: 110,
+      vibrance: 115,
+      clarity: 20,
+      colorCorrection: true
+    },
+    deviceProfile: { profile: "standard-mobile", intensity: 80 },
+    motionBlur: DEFAULT_MOTION_BLUR,
+    upscale: DEFAULT_UPSCALE
+  },
+  {
+    id: "preset-iphone-style-enhancement",
+    name: "iPhone Style Enhancement",
+    category: "Enhancement Presets",
+    description: "Simulates flagship iPhone video pipeline: warm natural skin tones, smooth highlight roll-off, balanced micro-contrast, and clean optical sharpness without artificial edge halos.",
+    container: "mp4",
+    dimensions: {
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.265 (HEVC 10-bit)",
+      framerateMode: "vfr",
+      framerate: 60,
+      qualityMode: "rf",
+      rfValue: 21,
+      bitrateKbps: 1e4,
+      twoPass: false,
+      turboFirstPass: false,
+      encoderSpeedPreset: "medium",
+      encoderProfile: "main",
+      hardwareAcceleration: true,
+      tenBitColor: true,
+      colorSpace: "bt709"
+    },
+    audio: [
+      {
+        id: "aud-1",
+        name: "Spatial Stereo",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 256,
+        mixdown: "Stereo",
+        gainDb: 0,
+        drc: 0
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "off",
+      sharpenStrength: 0,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 0,
+      contrast: 0,
+      saturation: 0
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 25,
+      noiseReduction: 15,
+      contrast: 52,
+      vibrance: 112,
+      highlights: -8,
+      shadows: 8,
+      colorTemperature: 6500,
+      colorCorrection: true
+    },
+    deviceProfile: { profile: "iphone-quality", intensity: 100 },
+    motionBlur: { ...DEFAULT_MOTION_BLUR, enabled: false, direction: "natural", shutterSpeed: "1/60" },
+    upscale: DEFAULT_UPSCALE
+  },
+  {
+    id: "preset-professional-quality-enhancement",
+    name: "Professional Quality Enhancement",
+    category: "Enhancement Presets",
+    description: "For high-resolution mirrorless / cinema camera footage. Focuses on pure optical preservation, wide dynamic range, 10-bit color, and transparent compression.",
+    container: "mp4",
+    dimensions: {
+      width: 3840,
+      height: 2160,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.265 (HEVC 10-bit)",
+      framerateMode: "cfr",
+      framerate: 60,
+      qualityMode: "rf",
+      rfValue: 18,
+      bitrateKbps: 24e3,
+      twoPass: true,
+      turboFirstPass: true,
+      encoderSpeedPreset: "slow",
+      encoderProfile: "main",
+      hardwareAcceleration: true,
+      tenBitColor: true,
+      colorSpace: "bt2020_hdr"
+    },
+    audio: [
+      {
+        id: "aud-1",
+        name: "Master Audio 5.1",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 320,
+        mixdown: "5.1 Surround",
+        gainDb: 0,
+        drc: 0
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "off",
+      sharpenStrength: 0,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 0,
+      contrast: 0,
+      saturation: 0
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 15,
+      noiseReduction: 10,
+      contrast: 50,
+      highlights: -5,
+      shadows: 5,
+      debanding: true,
+      colorCorrection: true
+    },
+    deviceProfile: { profile: "professional-camera", intensity: 100 },
+    motionBlur: DEFAULT_MOTION_BLUR,
+    upscale: DEFAULT_UPSCALE
+  },
+  {
+    id: "preset-cinematic-enhancement",
+    name: "Cinematic Enhancement",
+    category: "Enhancement Presets",
+    description: "Applies authentic cinema film emulation: Kodak 2383 tone curve, controlled highlight roll-off, 24 fps cadence, natural 1/48 shutter motion blur, and subtle organic 35mm grain.",
+    container: "mp4",
+    dimensions: {
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.265 (HEVC 10-bit)",
+      framerateMode: "cfr",
+      framerate: 24,
+      qualityMode: "rf",
+      rfValue: 19,
+      bitrateKbps: 12e3,
+      twoPass: true,
+      turboFirstPass: true,
+      encoderSpeedPreset: "medium",
+      encoderProfile: "main",
+      hardwareAcceleration: true,
+      tenBitColor: true,
+      colorSpace: "bt709"
+    },
+    audio: [
+      {
+        id: "aud-1",
+        name: "Cinematic Surround",
+        language: "English",
+        codec: "AC3",
+        bitrateKbps: 384,
+        mixdown: "5.1 Surround",
+        gainDb: 0,
+        drc: 0
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "unsharp",
+      sharpenStrength: 15,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: -2,
+      contrast: 8,
+      saturation: -5
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 20,
+      filmGrain: 15,
+      contrast: 56,
+      highlights: -15,
+      shadows: 6,
+      colorTemperature: 6100,
+      filmGrainSimulation: true,
+      colorCorrection: true
+    },
+    deviceProfile: { profile: "cinematic", intensity: 100 },
+    motionBlur: { ...DEFAULT_MOTION_BLUR, enabled: true, intensity: 45, direction: "natural", shutterSpeed: "1/24" },
+    upscale: DEFAULT_UPSCALE
+  },
+  {
+    id: "preset-social-media-optimized",
+    name: "Social Media Optimized",
+    category: "Enhancement Presets",
+    description: "Fine-tuned for Instagram Reels, YouTube Shorts, and TikTok. 9:16 vertical 1080x1920 with punchy vibrance, clean clarity, and high-bitrate universal H.264 profile.",
+    container: "mp4",
+    dimensions: {
+      width: 1080,
+      height: 1920,
+      aspectRatio: "9:16",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.264 (VideoToolbox / AVC)",
+      framerateMode: "cfr",
+      framerate: 60,
+      qualityMode: "bitrate",
+      rfValue: 20,
+      bitrateKbps: 12e3,
+      twoPass: false,
+      turboFirstPass: false,
+      encoderSpeedPreset: "faster",
+      encoderProfile: "high",
+      hardwareAcceleration: true,
+      tenBitColor: false,
+      colorSpace: "bt709"
+    },
+    audio: [
+      {
+        id: "aud-1",
+        name: "Loudness Stereo",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 256,
+        mixdown: "Stereo",
+        gainDb: 1,
+        drc: 0.8
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "unsharp",
+      sharpenStrength: 30,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 2,
+      contrast: 6,
+      saturation: 12
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 35,
+      contrast: 54,
+      saturation: 115,
+      vibrance: 125,
+      clarity: 30,
+      detailEnhancement: 35,
+      colorCorrection: true
+    },
+    deviceProfile: { profile: "high-quality-android", intensity: 75 },
+    motionBlur: DEFAULT_MOTION_BLUR,
+    upscale: { mode: "preset", multiplier: 1, algorithm: "lanczos", allowUpscaling: true, targetPresetId: "portrait-1080p" }
+  },
   // --- Apple Devices ---
   {
     id: "apple-2160p60-4k-hevc",
@@ -15428,12 +16166,13 @@ var VideoTranscoderService = class {
       video.playsInline = true;
       video.crossOrigin = "anonymous";
       const preset = job.preset;
-      const targetWidth = Math.min(preset.dimensions.width, 1920);
-      const targetHeight = Math.min(preset.dimensions.height, 1080);
+      const isPortrait = preset.dimensions.height > preset.dimensions.width;
+      const targetWidth = isPortrait ? Math.min(preset.dimensions.width, 1080) : Math.min(preset.dimensions.width, 1920);
+      const targetHeight = isPortrait ? Math.min(preset.dimensions.height, 1920) : Math.min(preset.dimensions.height, 1080);
       const canvas = document.createElement("canvas");
       canvas.width = targetWidth;
       canvas.height = targetHeight;
-      const ctx = canvas.getContext("2d", { willReadFrequently: false });
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
       if (!ctx) {
         reject(new Error("Canvas 2D context creation failed"));
         return;
@@ -15529,6 +16268,19 @@ var VideoTranscoderService = class {
       if (filters.brightness !== 0) filterCss += `brightness(${100 + filters.brightness}%) `;
       if (filters.contrast !== 0) filterCss += `contrast(${100 + filters.contrast}%) `;
       if (filters.saturation !== 0) filterCss += `saturate(${100 + filters.saturation}%) `;
+      const enhancementCss = buildCanvasCssFilter(preset.enhancement, preset.deviceProfile);
+      if (enhancementCss && enhancementCss !== "none") {
+        filterCss += (filterCss ? " " : "") + enhancementCss;
+      }
+      if (preset.enhancement) {
+        emitLog(`[enhancement] Engine active: Sharpness=${preset.enhancement.sharpness}, Denoise=${preset.enhancement.noiseReduction}, Temp=${preset.enhancement.colorTemperature}K, Grain=${preset.enhancement.filmGrain}`);
+      }
+      if (preset.deviceProfile && preset.deviceProfile.profile !== "none") {
+        emitLog(`[simulation] Device Quality Profile applied: "${preset.deviceProfile.profile}" at ${preset.deviceProfile.intensity}% intensity`);
+      }
+      if (preset.motionBlur && preset.motionBlur.enabled) {
+        emitLog(`[motion-blur] Directional blur enabled: ${preset.motionBlur.direction} direction, shutter ${preset.motionBlur.shutterSpeed}`);
+      }
       video.onloadeddata = () => {
         totalDuration = video.duration || totalDuration;
         totalFrames = Math.max(1, Math.round(totalDuration * targetFps));
@@ -15581,6 +16333,14 @@ var VideoTranscoderService = class {
           targetHeight
         );
         ctx.restore();
+        applyPixelEnhancements(
+          ctx,
+          targetWidth,
+          targetHeight,
+          preset.enhancement,
+          preset.deviceProfile,
+          preset.motionBlur
+        );
         framesEncoded++;
         const elapsed = (performance.now() - startTime) / 1e3;
         const currentFps = framesEncoded / Math.max(0.1, elapsed);
@@ -15757,90 +16517,97 @@ var __iconNode = [
 ];
 var Apple = createLucideIcon("apple", __iconNode);
 
-// node_modules/lucide-react/dist/esm/icons/battery.js
+// node_modules/lucide-react/dist/esm/icons/arrow-right.js
 var __iconNode2 = [
+  ["path", { d: "M5 12h14", key: "1ays0h" }],
+  ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
+];
+var ArrowRight = createLucideIcon("arrow-right", __iconNode2);
+
+// node_modules/lucide-react/dist/esm/icons/battery.js
+var __iconNode3 = [
   ["path", { d: "M 22 14 L 22 10", key: "nqc4tb" }],
   ["rect", { x: "2", y: "6", width: "16", height: "12", rx: "2", key: "13zb55" }]
 ];
-var Battery = createLucideIcon("battery", __iconNode2);
+var Battery = createLucideIcon("battery", __iconNode3);
 
 // node_modules/lucide-react/dist/esm/icons/captions.js
-var __iconNode3 = [
+var __iconNode4 = [
   ["rect", { width: "18", height: "14", x: "3", y: "5", rx: "2", ry: "2", key: "12ruh7" }],
   ["path", { d: "M7 15h4M15 15h2M7 11h2M13 11h4", key: "1ueiar" }]
 ];
-var Captions = createLucideIcon("captions", __iconNode3);
+var Captions = createLucideIcon("captions", __iconNode4);
 
 // node_modules/lucide-react/dist/esm/icons/check.js
-var __iconNode4 = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]];
-var Check = createLucideIcon("check", __iconNode4);
+var __iconNode5 = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]];
+var Check = createLucideIcon("check", __iconNode5);
 
 // node_modules/lucide-react/dist/esm/icons/chevron-down.js
-var __iconNode5 = [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]];
-var ChevronDown = createLucideIcon("chevron-down", __iconNode5);
+var __iconNode6 = [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]];
+var ChevronDown = createLucideIcon("chevron-down", __iconNode6);
 
 // node_modules/lucide-react/dist/esm/icons/chevron-right.js
-var __iconNode6 = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
-var ChevronRight = createLucideIcon("chevron-right", __iconNode6);
+var __iconNode7 = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
+var ChevronRight = createLucideIcon("chevron-right", __iconNode7);
 
 // node_modules/lucide-react/dist/esm/icons/chevron-up.js
-var __iconNode7 = [["path", { d: "m18 15-6-6-6 6", key: "153udz" }]];
-var ChevronUp = createLucideIcon("chevron-up", __iconNode7);
+var __iconNode8 = [["path", { d: "m18 15-6-6-6 6", key: "153udz" }]];
+var ChevronUp = createLucideIcon("chevron-up", __iconNode8);
 
 // node_modules/lucide-react/dist/esm/icons/circle-check-big.js
-var __iconNode8 = [
+var __iconNode9 = [
   ["path", { d: "M21.801 10A10 10 0 1 1 17 3.335", key: "yps3ct" }],
   ["path", { d: "m9 11 3 3L22 4", key: "1pflzl" }]
 ];
-var CircleCheckBig = createLucideIcon("circle-check-big", __iconNode8);
+var CircleCheckBig = createLucideIcon("circle-check-big", __iconNode9);
 
 // node_modules/lucide-react/dist/esm/icons/circle-check.js
-var __iconNode9 = [
+var __iconNode10 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ];
-var CircleCheck = createLucideIcon("circle-check", __iconNode9);
+var CircleCheck = createLucideIcon("circle-check", __iconNode10);
 
 // node_modules/lucide-react/dist/esm/icons/circle-plus.js
-var __iconNode10 = [
+var __iconNode11 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M8 12h8", key: "1wcyev" }],
   ["path", { d: "M12 8v8", key: "napkw2" }]
 ];
-var CirclePlus = createLucideIcon("circle-plus", __iconNode10);
+var CirclePlus = createLucideIcon("circle-plus", __iconNode11);
 
 // node_modules/lucide-react/dist/esm/icons/circle-x.js
-var __iconNode11 = [
+var __iconNode12 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m15 9-6 6", key: "1uzhvr" }],
   ["path", { d: "m9 9 6 6", key: "z0biqf" }]
 ];
-var CircleX = createLucideIcon("circle-x", __iconNode11);
+var CircleX = createLucideIcon("circle-x", __iconNode12);
 
 // node_modules/lucide-react/dist/esm/icons/clock.js
-var __iconNode12 = [
+var __iconNode13 = [
   ["path", { d: "M12 6v6l4 2", key: "mmk7yg" }],
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
 ];
-var Clock = createLucideIcon("clock", __iconNode12);
+var Clock = createLucideIcon("clock", __iconNode13);
 
 // node_modules/lucide-react/dist/esm/icons/code-xml.js
-var __iconNode13 = [
+var __iconNode14 = [
   ["path", { d: "m18 16 4-4-4-4", key: "1inbqp" }],
   ["path", { d: "m6 8-4 4 4 4", key: "15zrgr" }],
   ["path", { d: "m14.5 4-5 16", key: "e7oirm" }]
 ];
-var CodeXml = createLucideIcon("code-xml", __iconNode13);
+var CodeXml = createLucideIcon("code-xml", __iconNode14);
 
 // node_modules/lucide-react/dist/esm/icons/copy.js
-var __iconNode14 = [
+var __iconNode15 = [
   ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
   ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
 ];
-var Copy = createLucideIcon("copy", __iconNode14);
+var Copy = createLucideIcon("copy", __iconNode15);
 
 // node_modules/lucide-react/dist/esm/icons/cpu.js
-var __iconNode15 = [
+var __iconNode16 = [
   ["path", { d: "M12 20v2", key: "1lh1kg" }],
   ["path", { d: "M12 2v2", key: "tus03m" }],
   ["path", { d: "M17 20v2", key: "1rnc9c" }],
@@ -15856,50 +16623,50 @@ var __iconNode15 = [
   ["rect", { x: "4", y: "4", width: "16", height: "16", rx: "2", key: "1vbyd7" }],
   ["rect", { x: "8", y: "8", width: "8", height: "8", rx: "1", key: "z9xiuo" }]
 ];
-var Cpu = createLucideIcon("cpu", __iconNode15);
+var Cpu = createLucideIcon("cpu", __iconNode16);
 
 // node_modules/lucide-react/dist/esm/icons/crop.js
-var __iconNode16 = [
+var __iconNode17 = [
   ["path", { d: "M6 2v14a2 2 0 0 0 2 2h14", key: "ron5a4" }],
   ["path", { d: "M18 22V8a2 2 0 0 0-2-2H2", key: "7s9ehn" }]
 ];
-var Crop = createLucideIcon("crop", __iconNode16);
+var Crop = createLucideIcon("crop", __iconNode17);
 
 // node_modules/lucide-react/dist/esm/icons/download.js
-var __iconNode17 = [
+var __iconNode18 = [
   ["path", { d: "M12 15V3", key: "m9g1x1" }],
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
   ["path", { d: "m7 10 5 5 5-5", key: "brsn70" }]
 ];
-var Download = createLucideIcon("download", __iconNode17);
+var Download = createLucideIcon("download", __iconNode18);
 
 // node_modules/lucide-react/dist/esm/icons/ellipsis-vertical.js
-var __iconNode18 = [
+var __iconNode19 = [
   ["circle", { cx: "12", cy: "12", r: "1", key: "41hilf" }],
   ["circle", { cx: "12", cy: "5", r: "1", key: "gxeob9" }],
   ["circle", { cx: "12", cy: "19", r: "1", key: "lyex9k" }]
 ];
-var EllipsisVertical = createLucideIcon("ellipsis-vertical", __iconNode18);
+var EllipsisVertical = createLucideIcon("ellipsis-vertical", __iconNode19);
 
 // node_modules/lucide-react/dist/esm/icons/external-link.js
-var __iconNode19 = [
+var __iconNode20 = [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ];
-var ExternalLink = createLucideIcon("external-link", __iconNode19);
+var ExternalLink = createLucideIcon("external-link", __iconNode20);
 
 // node_modules/lucide-react/dist/esm/icons/file-code.js
-var __iconNode20 = [
+var __iconNode21 = [
   ["path", { d: "M10 12.5 8 15l2 2.5", key: "1tg20x" }],
   ["path", { d: "m14 12.5 2 2.5-2 2.5", key: "yinavb" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z", key: "1mlx9k" }]
 ];
-var FileCode = createLucideIcon("file-code", __iconNode20);
+var FileCode = createLucideIcon("file-code", __iconNode21);
 
 // node_modules/lucide-react/dist/esm/icons/file-play.js
-var __iconNode21 = [
+var __iconNode22 = [
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z", key: "1mlx9k" }],
   [
@@ -15910,10 +16677,10 @@ var __iconNode21 = [
     }
   ]
 ];
-var FilePlay = createLucideIcon("file-play", __iconNode21);
+var FilePlay = createLucideIcon("file-play", __iconNode22);
 
 // node_modules/lucide-react/dist/esm/icons/film.js
-var __iconNode22 = [
+var __iconNode23 = [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M7 3v18", key: "bbkbws" }],
   ["path", { d: "M3 7.5h4", key: "zfgn84" }],
@@ -15923,18 +16690,18 @@ var __iconNode22 = [
   ["path", { d: "M17 7.5h4", key: "myr1c1" }],
   ["path", { d: "M17 16.5h4", key: "go4c1d" }]
 ];
-var Film = createLucideIcon("film", __iconNode22);
+var Film = createLucideIcon("film", __iconNode23);
 
 // node_modules/lucide-react/dist/esm/icons/globe.js
-var __iconNode23 = [
+var __iconNode24 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", key: "13o1zl" }],
   ["path", { d: "M2 12h20", key: "9i4pu4" }]
 ];
-var Globe = createLucideIcon("globe", __iconNode23);
+var Globe = createLucideIcon("globe", __iconNode24);
 
 // node_modules/lucide-react/dist/esm/icons/hard-drive.js
-var __iconNode24 = [
+var __iconNode25 = [
   ["line", { x1: "22", x2: "2", y1: "12", y2: "12", key: "1y58io" }],
   [
     "path",
@@ -15946,10 +16713,18 @@ var __iconNode24 = [
   ["line", { x1: "6", x2: "6.01", y1: "16", y2: "16", key: "sgf278" }],
   ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
 ];
-var HardDrive = createLucideIcon("hard-drive", __iconNode24);
+var HardDrive = createLucideIcon("hard-drive", __iconNode25);
+
+// node_modules/lucide-react/dist/esm/icons/info.js
+var __iconNode26 = [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "M12 16v-4", key: "1dtifu" }],
+  ["path", { d: "M12 8h.01", key: "e9boi3" }]
+];
+var Info = createLucideIcon("info", __iconNode26);
 
 // node_modules/lucide-react/dist/esm/icons/layers.js
-var __iconNode25 = [
+var __iconNode27 = [
   [
     "path",
     {
@@ -15972,32 +16747,52 @@ var __iconNode25 = [
     }
   ]
 ];
-var Layers = createLucideIcon("layers", __iconNode25);
+var Layers = createLucideIcon("layers", __iconNode27);
+
+// node_modules/lucide-react/dist/esm/icons/list-ordered.js
+var __iconNode28 = [
+  ["path", { d: "M11 5h10", key: "1cz7ny" }],
+  ["path", { d: "M11 12h10", key: "1438ji" }],
+  ["path", { d: "M11 19h10", key: "11t30w" }],
+  ["path", { d: "M4 4h1v5", key: "10yrso" }],
+  ["path", { d: "M4 9h2", key: "r1h2o0" }],
+  ["path", { d: "M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02", key: "xtkcd5" }]
+];
+var ListOrdered = createLucideIcon("list-ordered", __iconNode28);
 
 // node_modules/lucide-react/dist/esm/icons/lock.js
-var __iconNode26 = [
+var __iconNode29 = [
   ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
   ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
 ];
-var Lock = createLucideIcon("lock", __iconNode26);
+var Lock = createLucideIcon("lock", __iconNode29);
+
+// node_modules/lucide-react/dist/esm/icons/maximize-2.js
+var __iconNode30 = [
+  ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
+  ["path", { d: "m21 3-7 7", key: "1l2asr" }],
+  ["path", { d: "m3 21 7-7", key: "tjx5ai" }],
+  ["path", { d: "M9 21H3v-6", key: "wtvkvv" }]
+];
+var Maximize2 = createLucideIcon("maximize-2", __iconNode30);
 
 // node_modules/lucide-react/dist/esm/icons/monitor.js
-var __iconNode27 = [
+var __iconNode31 = [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ];
-var Monitor = createLucideIcon("monitor", __iconNode27);
+var Monitor = createLucideIcon("monitor", __iconNode31);
 
 // node_modules/lucide-react/dist/esm/icons/pause.js
-var __iconNode28 = [
+var __iconNode32 = [
   ["rect", { x: "14", y: "3", width: "5", height: "18", rx: "1", key: "kaeet6" }],
   ["rect", { x: "5", y: "3", width: "5", height: "18", rx: "1", key: "1wsw3u" }]
 ];
-var Pause = createLucideIcon("pause", __iconNode28);
+var Pause = createLucideIcon("pause", __iconNode32);
 
 // node_modules/lucide-react/dist/esm/icons/play.js
-var __iconNode29 = [
+var __iconNode33 = [
   [
     "path",
     {
@@ -16006,59 +16801,59 @@ var __iconNode29 = [
     }
   ]
 ];
-var Play = createLucideIcon("play", __iconNode29);
+var Play = createLucideIcon("play", __iconNode33);
 
 // node_modules/lucide-react/dist/esm/icons/plus.js
-var __iconNode30 = [
+var __iconNode34 = [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ];
-var Plus = createLucideIcon("plus", __iconNode30);
+var Plus = createLucideIcon("plus", __iconNode34);
 
 // node_modules/lucide-react/dist/esm/icons/refresh-cw.js
-var __iconNode31 = [
+var __iconNode35 = [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
   ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ];
-var RefreshCw = createLucideIcon("refresh-cw", __iconNode31);
+var RefreshCw = createLucideIcon("refresh-cw", __iconNode35);
 
 // node_modules/lucide-react/dist/esm/icons/rotate-cw.js
-var __iconNode32 = [
+var __iconNode36 = [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ];
-var RotateCw = createLucideIcon("rotate-cw", __iconNode32);
+var RotateCw = createLucideIcon("rotate-cw", __iconNode36);
 
 // node_modules/lucide-react/dist/esm/icons/search.js
-var __iconNode33 = [
+var __iconNode37 = [
   ["path", { d: "m21 21-4.34-4.34", key: "14j7rj" }],
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }]
 ];
-var Search = createLucideIcon("search", __iconNode33);
+var Search = createLucideIcon("search", __iconNode37);
 
 // node_modules/lucide-react/dist/esm/icons/server.js
-var __iconNode34 = [
+var __iconNode38 = [
   ["rect", { width: "20", height: "8", x: "2", y: "2", rx: "2", ry: "2", key: "ngkwjq" }],
   ["rect", { width: "20", height: "8", x: "2", y: "14", rx: "2", ry: "2", key: "iecqi9" }],
   ["line", { x1: "6", x2: "6.01", y1: "6", y2: "6", key: "16zg32" }],
   ["line", { x1: "6", x2: "6.01", y1: "18", y2: "18", key: "nzw8ys" }]
 ];
-var Server = createLucideIcon("server", __iconNode34);
+var Server = createLucideIcon("server", __iconNode38);
 
 // node_modules/lucide-react/dist/esm/icons/share-2.js
-var __iconNode35 = [
+var __iconNode39 = [
   ["circle", { cx: "18", cy: "5", r: "3", key: "gq8acd" }],
   ["circle", { cx: "6", cy: "12", r: "3", key: "w7nqdw" }],
   ["circle", { cx: "18", cy: "19", r: "3", key: "1xt0gg" }],
   ["line", { x1: "8.59", x2: "15.42", y1: "13.51", y2: "17.49", key: "47mynk" }],
   ["line", { x1: "15.41", x2: "8.59", y1: "6.51", y2: "10.49", key: "1n3mei" }]
 ];
-var Share2 = createLucideIcon("share-2", __iconNode35);
+var Share2 = createLucideIcon("share-2", __iconNode39);
 
 // node_modules/lucide-react/dist/esm/icons/sliders-vertical.js
-var __iconNode36 = [
+var __iconNode40 = [
   ["path", { d: "M10 8h4", key: "1sr2af" }],
   ["path", { d: "M12 21v-9", key: "17s77i" }],
   ["path", { d: "M12 8V3", key: "13r4qs" }],
@@ -16069,10 +16864,10 @@ var __iconNode36 = [
   ["path", { d: "M5 10V3", key: "cb8scm" }],
   ["path", { d: "M5 21v-7", key: "1w1uti" }]
 ];
-var SlidersVertical = createLucideIcon("sliders-vertical", __iconNode36);
+var SlidersVertical = createLucideIcon("sliders-vertical", __iconNode40);
 
 // node_modules/lucide-react/dist/esm/icons/sliders-horizontal.js
-var __iconNode37 = [
+var __iconNode41 = [
   ["path", { d: "M10 5H3", key: "1qgfaw" }],
   ["path", { d: "M12 19H3", key: "yhmn1j" }],
   ["path", { d: "M14 3v4", key: "1sua03" }],
@@ -16083,17 +16878,17 @@ var __iconNode37 = [
   ["path", { d: "M8 10v4", key: "tgpxqk" }],
   ["path", { d: "M8 12H3", key: "a7s4jb" }]
 ];
-var SlidersHorizontal = createLucideIcon("sliders-horizontal", __iconNode37);
+var SlidersHorizontal = createLucideIcon("sliders-horizontal", __iconNode41);
 
 // node_modules/lucide-react/dist/esm/icons/smartphone.js
-var __iconNode38 = [
+var __iconNode42 = [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
   ["path", { d: "M12 18h.01", key: "mhygvu" }]
 ];
-var Smartphone = createLucideIcon("smartphone", __iconNode38);
+var Smartphone = createLucideIcon("smartphone", __iconNode42);
 
 // node_modules/lucide-react/dist/esm/icons/sparkles.js
-var __iconNode39 = [
+var __iconNode43 = [
   [
     "path",
     {
@@ -16105,52 +16900,65 @@ var __iconNode39 = [
   ["path", { d: "M22 4h-4", key: "gwowj6" }],
   ["circle", { cx: "4", cy: "20", r: "2", key: "6kqj1y" }]
 ];
-var Sparkles = createLucideIcon("sparkles", __iconNode39);
+var Sparkles = createLucideIcon("sparkles", __iconNode43);
 
 // node_modules/lucide-react/dist/esm/icons/split.js
-var __iconNode40 = [
+var __iconNode44 = [
   ["path", { d: "M16 3h5v5", key: "1806ms" }],
   ["path", { d: "M8 3H3v5", key: "15dfkv" }],
   ["path", { d: "M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3", key: "1qrqzj" }],
   ["path", { d: "m15 9 6-6", key: "ko1vev" }]
 ];
-var Split = createLucideIcon("split", __iconNode40);
+var Split = createLucideIcon("split", __iconNode44);
 
 // node_modules/lucide-react/dist/esm/icons/square-plus.js
-var __iconNode41 = [
+var __iconNode45 = [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M8 12h8", key: "1wcyev" }],
   ["path", { d: "M12 8v8", key: "napkw2" }]
 ];
-var SquarePlus = createLucideIcon("square-plus", __iconNode41);
+var SquarePlus = createLucideIcon("square-plus", __iconNode45);
 
 // node_modules/lucide-react/dist/esm/icons/terminal.js
-var __iconNode42 = [
+var __iconNode46 = [
   ["path", { d: "M12 19h8", key: "baeox8" }],
   ["path", { d: "m4 17 6-6-6-6", key: "1yngyt" }]
 ];
-var Terminal = createLucideIcon("terminal", __iconNode42);
+var Terminal = createLucideIcon("terminal", __iconNode46);
 
 // node_modules/lucide-react/dist/esm/icons/trash-2.js
-var __iconNode43 = [
+var __iconNode47 = [
   ["path", { d: "M10 11v6", key: "nco0om" }],
   ["path", { d: "M14 11v6", key: "outv1u" }],
   ["path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", key: "miytrc" }],
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", key: "e791ji" }]
 ];
-var Trash2 = createLucideIcon("trash-2", __iconNode43);
+var Trash2 = createLucideIcon("trash-2", __iconNode47);
 
 // node_modules/lucide-react/dist/esm/icons/upload.js
-var __iconNode44 = [
+var __iconNode48 = [
   ["path", { d: "M12 3v12", key: "1x0j5s" }],
   ["path", { d: "m17 8-5-5-5 5", key: "7q97r8" }],
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }]
 ];
-var Upload = createLucideIcon("upload", __iconNode44);
+var Upload = createLucideIcon("upload", __iconNode48);
+
+// node_modules/lucide-react/dist/esm/icons/video.js
+var __iconNode49 = [
+  [
+    "path",
+    {
+      d: "m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5",
+      key: "ftymec"
+    }
+  ],
+  ["rect", { x: "2", y: "6", width: "14", height: "12", rx: "2", key: "158x01" }]
+];
+var Video = createLucideIcon("video", __iconNode49);
 
 // node_modules/lucide-react/dist/esm/icons/volume-2.js
-var __iconNode45 = [
+var __iconNode50 = [
   [
     "path",
     {
@@ -16161,26 +16969,45 @@ var __iconNode45 = [
   ["path", { d: "M16 9a5 5 0 0 1 0 6", key: "1q6k2b" }],
   ["path", { d: "M19.364 18.364a9 9 0 0 0 0-12.728", key: "ijwkga" }]
 ];
-var Volume2 = createLucideIcon("volume-2", __iconNode45);
+var Volume2 = createLucideIcon("volume-2", __iconNode50);
+
+// node_modules/lucide-react/dist/esm/icons/wand-sparkles.js
+var __iconNode51 = [
+  [
+    "path",
+    {
+      d: "m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72",
+      key: "ul74o6"
+    }
+  ],
+  ["path", { d: "m14 7 3 3", key: "1r5n42" }],
+  ["path", { d: "M5 6v4", key: "ilb8ba" }],
+  ["path", { d: "M19 14v4", key: "blhpug" }],
+  ["path", { d: "M10 2v2", key: "7u0qdc" }],
+  ["path", { d: "M7 8H3", key: "zfb6yr" }],
+  ["path", { d: "M21 16h-4", key: "1cnmox" }],
+  ["path", { d: "M11 3H9", key: "1obp7u" }]
+];
+var WandSparkles = createLucideIcon("wand-sparkles", __iconNode51);
 
 // node_modules/lucide-react/dist/esm/icons/wifi.js
-var __iconNode46 = [
+var __iconNode52 = [
   ["path", { d: "M12 20h.01", key: "zekei9" }],
   ["path", { d: "M2 8.82a15 15 0 0 1 20 0", key: "dnpr2z" }],
   ["path", { d: "M5 12.859a10 10 0 0 1 14 0", key: "1x1e6c" }],
   ["path", { d: "M8.5 16.429a5 5 0 0 1 7 0", key: "1bycff" }]
 ];
-var Wifi = createLucideIcon("wifi", __iconNode46);
+var Wifi = createLucideIcon("wifi", __iconNode52);
 
 // node_modules/lucide-react/dist/esm/icons/x.js
-var __iconNode47 = [
+var __iconNode53 = [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ];
-var X = createLucideIcon("x", __iconNode47);
+var X = createLucideIcon("x", __iconNode53);
 
 // node_modules/lucide-react/dist/esm/icons/zap.js
-var __iconNode48 = [
+var __iconNode54 = [
   [
     "path",
     {
@@ -16189,7 +17016,7 @@ var __iconNode48 = [
     }
   ]
 ];
-var Zap = createLucideIcon("zap", __iconNode48);
+var Zap = createLucideIcon("zap", __iconNode54);
 
 // src/components/PlatformSwitcherBar.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -17087,11 +17914,193 @@ var IOSBottomBar = ({
 
 // src/components/tabs/TranscodeTab.tsx
 var import_react6 = __toESM(require_react(), 1);
+
+// src/services/footageAnalyzer.ts
+function analyzeFootage(source) {
+  const width = source.width || 1920;
+  const height = source.height || 1080;
+  const fps = source.fps || 30;
+  const bitrateKbps = source.bitrateKbps || 4e3;
+  const duration = source.durationSeconds || 10;
+  let orientation = "landscape";
+  if (height > width * 1.05) {
+    orientation = "portrait";
+  } else if (Math.abs(width - height) < 20) {
+    orientation = "square";
+  }
+  const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+  const divisor = gcd(width, height);
+  const ratioW = width / divisor;
+  const ratioH = height / divisor;
+  const aspectRatio = `${ratioW}:${ratioH}`;
+  const totalPixelsPerSec = width * height * fps;
+  const bitsPerSec = bitrateKbps * 1e3;
+  const bpp = totalPixelsPerSec > 0 ? bitsPerSec / totalPixelsPerSec : 0.1;
+  let compressionArtifacts = "moderate";
+  let noiseEstimate = "moderate";
+  let dynamicRangeEstimate = "standard";
+  let sharpnessScore = 70;
+  if (bpp < 0.05 || width < 1280) {
+    compressionArtifacts = "severe";
+    noiseEstimate = "high";
+    dynamicRangeEstimate = "narrow";
+    sharpnessScore = 45;
+  } else if (bpp > 0.18 && width >= 1920) {
+    compressionArtifacts = "minimal";
+    noiseEstimate = "low";
+    dynamicRangeEstimate = "wide";
+    sharpnessScore = 88;
+  } else {
+    compressionArtifacts = "moderate";
+    noiseEstimate = "moderate";
+    dynamicRangeEstimate = "standard";
+    sharpnessScore = 72;
+  }
+  let recommendedPreset = "Mobile Video Enhancement";
+  let recommendedReason = "Standard resolution detected; balancing natural sharpness, color vibrance, and clean noise reduction.";
+  if (orientation === "portrait") {
+    recommendedPreset = "Social Media Optimized";
+    recommendedReason = "9:16 vertical orientation detected. Optimized for high-bitrate Instagram Reels, TikTok, and YouTube Shorts.";
+  } else if (width <= 1280 || compressionArtifacts === "severe") {
+    recommendedPreset = "Low Quality Footage Recovery";
+    recommendedReason = "High compression artifacts and low source resolution detected. Applying deblocking, bilateral denoising, edge recovery, and upscaling.";
+  } else if (width >= 3840 || width >= 1920 && bpp > 0.2) {
+    recommendedPreset = "Professional Quality Enhancement";
+    recommendedReason = "High-resolution source footage with high bit-depth. Preserving fine micro-contrast and applying high-fidelity color grading.";
+  } else if (fps >= 60) {
+    recommendedPreset = "iPhone Style Enhancement";
+    recommendedReason = "High frame-rate mobile footage detected. Tuning skin-tone vibrance, smooth dynamic range, and natural optical sharpness.";
+  } else {
+    recommendedPreset = "Cinematic Enhancement";
+    recommendedReason = "24-30 fps footage detected. Applying film tonal curve, controlled highlight roll-off, subtle 35mm grain, and 1/48s shutter motion blur.";
+  }
+  return {
+    width,
+    height,
+    aspectRatio,
+    orientation,
+    fps,
+    durationSeconds: duration,
+    bitrateKbps,
+    codec: source.codec || "H.264 / AVC",
+    noiseEstimate,
+    compressionArtifacts,
+    dynamicRangeEstimate,
+    sharpnessScore,
+    recommendedPreset,
+    recommendedReason
+  };
+}
+function computeUpscaleOptions(sourceWidth, sourceHeight) {
+  const isPortrait = sourceHeight > sourceWidth;
+  const options = [];
+  options.push({
+    id: "original",
+    label: `Original (${sourceWidth} \xD7 ${sourceHeight})`,
+    width: sourceWidth,
+    height: sourceHeight,
+    aspectRatio: isPortrait ? "9:16" : "16:9",
+    orientation: isPortrait ? "portrait" : "landscape",
+    factor: "original",
+    estimatedScaleTimeMultiplier: 1
+  });
+  if (isPortrait) {
+    options.push(
+      {
+        id: "portrait-2x",
+        label: `2x Upscale (${sourceWidth * 2} \xD7 ${sourceHeight * 2})`,
+        width: Math.min(3840, sourceWidth * 2),
+        height: Math.min(7680, sourceHeight * 2),
+        aspectRatio: "9:16",
+        orientation: "portrait",
+        factor: "2x",
+        estimatedScaleTimeMultiplier: 1.5
+      },
+      {
+        id: "portrait-1080p",
+        label: "1080p Portrait (1080 \xD7 1920)",
+        width: 1080,
+        height: 1920,
+        aspectRatio: "9:16",
+        orientation: "portrait",
+        factor: "1080p",
+        estimatedScaleTimeMultiplier: 1.3
+      },
+      {
+        id: "portrait-2k",
+        label: "2K Portrait (1440 \xD7 2560)",
+        width: 1440,
+        height: 2560,
+        aspectRatio: "9:16",
+        orientation: "portrait",
+        factor: "2K",
+        estimatedScaleTimeMultiplier: 1.8
+      },
+      {
+        id: "portrait-4k",
+        label: "4K Portrait (2160 \xD7 3840)",
+        width: 2160,
+        height: 3840,
+        aspectRatio: "9:16",
+        orientation: "portrait",
+        factor: "4K",
+        estimatedScaleTimeMultiplier: 2.6
+      }
+    );
+  } else {
+    options.push(
+      {
+        id: "landscape-2x",
+        label: `2x Upscale (${sourceWidth * 2} \xD7 ${sourceHeight * 2})`,
+        width: Math.min(7680, sourceWidth * 2),
+        height: Math.min(4320, sourceHeight * 2),
+        aspectRatio: "16:9",
+        orientation: "landscape",
+        factor: "2x",
+        estimatedScaleTimeMultiplier: 1.5
+      },
+      {
+        id: "landscape-1080p",
+        label: "1080p Landscape (1920 \xD7 1080)",
+        width: 1920,
+        height: 1080,
+        aspectRatio: "16:9",
+        orientation: "landscape",
+        factor: "1080p",
+        estimatedScaleTimeMultiplier: 1.2
+      },
+      {
+        id: "landscape-2k",
+        label: "2K Landscape (2560 \xD7 1440)",
+        width: 2560,
+        height: 1440,
+        aspectRatio: "16:9",
+        orientation: "landscape",
+        factor: "2K",
+        estimatedScaleTimeMultiplier: 1.7
+      },
+      {
+        id: "landscape-4k",
+        label: "4K Landscape (3840 \xD7 2160)",
+        width: 3840,
+        height: 2160,
+        aspectRatio: "16:9",
+        orientation: "landscape",
+        factor: "4K",
+        estimatedScaleTimeMultiplier: 2.5
+      }
+    );
+  }
+  return options;
+}
+
+// src/components/tabs/TranscodeTab.tsx
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 var TranscodeTab = ({
   source,
   preset,
   onSelectSource,
+  onSelectPreset,
   onOpenPresetsModal,
   onOpenStudioTab,
   onStartEncodeNow,
@@ -17101,10 +18110,31 @@ var TranscodeTab = ({
 }) => {
   const [isPlaying, setIsPlaying] = (0, import_react6.useState)(false);
   const [splitPos, setSplitPos] = (0, import_react6.useState)(50);
-  const [showSplitMode, setShowSplitMode] = (0, import_react6.useState)(false);
+  const [showSplitMode, setShowSplitMode] = (0, import_react6.useState)(true);
   const [isLoadingSample, setIsLoadingSample] = (0, import_react6.useState)(false);
   const videoRef = (0, import_react6.useRef)(null);
   const fileInputRef = (0, import_react6.useRef)(null);
+  const analysis = (0, import_react6.useMemo)(() => {
+    if (!source) return null;
+    return analyzeFootage(source);
+  }, [source]);
+  const upscaleOptions = (0, import_react6.useMemo)(() => {
+    if (!source) return [];
+    return computeUpscaleOptions(source.width, source.height);
+  }, [source]);
+  const enhancedFilterCss = (0, import_react6.useMemo)(() => {
+    const filters = preset.filters;
+    let css = "";
+    if (filters.grayscale) css += "grayscale(100%) ";
+    if (filters.brightness !== 0) css += `brightness(${100 + filters.brightness}%) `;
+    if (filters.contrast !== 0) css += `contrast(${100 + filters.contrast}%) `;
+    if (filters.saturation !== 0) css += `saturate(${100 + filters.saturation}%) `;
+    const customEnhancementCss = buildCanvasCssFilter(preset.enhancement, preset.deviceProfile);
+    if (customEnhancementCss && customEnhancementCss !== "none") {
+      css += (css ? " " : "") + customEnhancementCss;
+    }
+    return css.trim() || "none";
+  }, [preset]);
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -17160,15 +18190,24 @@ var TranscodeTab = ({
       videoRef.current.play().then(() => setIsPlaying(true)).catch(console.error);
     }
   };
-  const estimatedSizeBytes = source ? Math.round((preset.video.qualityMode === "bitrate" ? preset.video.bitrateKbps : 5e3) * 1e3 * source.durationSeconds / 8) : 0;
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-4 text-slate-100 pb-20", children: [
+  const applyRecommendedPreset = () => {
+    if (!analysis || !onSelectPreset) return;
+    const matched = DEFAULT_PRESETS.find(
+      (p) => p.name.toLowerCase() === analysis.recommendedPreset.toLowerCase()
+    );
+    if (matched) {
+      onSelectPreset(matched);
+    }
+  };
+  const estimatedSizeBytes = source ? Math.round((preset.video.qualityMode === "bitrate" ? preset.video.bitrateKbps : 6e3) * 1e3 * source.durationSeconds / 8) : 0;
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-4 text-slate-100 pb-24", children: [
     /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex items-center justify-between", children: [
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("h1", { className: "text-xl font-bold tracking-tight text-white flex items-center gap-2", children: [
-          "Transcode",
+          "Transcode & Enhance",
           /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[10px] font-mono font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20", children: "v1.9.0" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "text-xs text-slate-400", children: "Apple VideoToolbox Hardware Pipeline" })
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "text-xs text-slate-400", children: "Hardware Accelerated Video Enhancement & Encoding" })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
         "button",
@@ -17193,7 +18232,67 @@ var TranscodeTab = ({
         }
       )
     ] }),
-    source ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "relative rounded-2xl overflow-hidden bg-black aspect-video border border-white/10 shadow-lg group", children: [
+    source && analysis && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "p-3.5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-amber-950/30 border border-amber-500/20 space-y-2.5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Sparkles, { className: "w-4 h-4 text-amber-400 shrink-0" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-xs font-bold text-white uppercase tracking-wider", children: "Footage Analysis & Recommendation" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "text-[10px] font-mono text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 uppercase", children: [
+          analysis.orientation,
+          " (",
+          analysis.aspectRatio,
+          ")"
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "p-2 rounded-lg bg-slate-950/70 border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[9px] text-slate-400 uppercase block", children: "Resolution" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "text-slate-200 font-bold", children: [
+            analysis.width,
+            "\xD7",
+            analysis.height
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "p-2 rounded-lg bg-slate-950/70 border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[9px] text-slate-400 uppercase block", children: "Framerate" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "text-slate-200 font-bold", children: [
+            analysis.fps,
+            " FPS"
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "p-2 rounded-lg bg-slate-950/70 border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[9px] text-slate-400 uppercase block", children: "Noise Level" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: `font-bold capitalize ${analysis.noiseEstimate === "high" ? "text-orange-400" : "text-emerald-400"}`, children: analysis.noiseEstimate })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "p-2 rounded-lg bg-slate-950/70 border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[9px] text-slate-400 uppercase block", children: "Compression" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: `font-bold capitalize ${analysis.compressionArtifacts === "severe" ? "text-red-400" : "text-slate-200"}`, children: analysis.compressionArtifacts })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "p-2.5 rounded-xl bg-slate-950/80 border border-amber-500/30 flex items-center justify-between gap-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "space-y-0.5 min-w-0", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex items-center gap-1.5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[10px] text-slate-400", children: "Recommended Preset:" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-xs font-bold text-amber-300 truncate", children: analysis.recommendedPreset })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "text-[10px] text-slate-400 truncate leading-relaxed", children: analysis.recommendedReason })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+          "button",
+          {
+            type: "button",
+            onClick: applyRecommendedPreset,
+            className: "shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow transition-all flex items-center gap-1",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "Apply Preset" }),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ArrowRight, { className: "w-3.5 h-3.5" })
+            ]
+          }
+        )
+      ] })
+    ] }),
+    source ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "space-y-2", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "relative rounded-2xl overflow-hidden bg-black aspect-video border border-white/10 shadow-xl group", children: [
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
         "video",
         {
@@ -17206,13 +18305,13 @@ var TranscodeTab = ({
           onPause: () => setIsPlaying(false)
         }
       ),
-      latestEncodedUrl && showSplitMode && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+      showSplitMode && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
         "div",
         {
           className: "absolute inset-0 overflow-hidden pointer-events-none",
           style: { clipPath: `inset(0 0 0 ${splitPos}%)` },
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+            latestEncodedUrl ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
               "video",
               {
                 src: latestEncodedUrl,
@@ -17222,20 +18321,32 @@ var TranscodeTab = ({
                 muted: true,
                 className: "w-full h-full object-contain"
               }
+            ) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+              "video",
+              {
+                src: source.url,
+                playsInline: true,
+                loop: true,
+                muted: true,
+                autoPlay: true,
+                className: "w-full h-full object-contain",
+                style: { filter: enhancedFilterCss }
+              }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "absolute top-3 right-3 bg-amber-500/80 backdrop-blur-md text-black font-bold text-[10px] px-2 py-0.5 rounded", children: "ENCODED" })
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "absolute top-3 right-3 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-bold text-[10px] px-2.5 py-1 rounded-md shadow-md uppercase tracking-wider", children: latestEncodedUrl ? "ENCODED" : "ENHANCED PREVIEW" })
           ]
         }
       ),
-      latestEncodedUrl && showSplitMode && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      showSplitMode && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
         "div",
         {
           className: "absolute top-0 bottom-0 w-0.5 bg-amber-400 z-20 cursor-ew-resize flex items-center justify-center pointer-events-auto",
           style: { left: `${splitPos}%` },
           onMouseDown: (e) => {
+            const parent = e.currentTarget.parentElement;
             const moveHandler = (ev) => {
-              const rect = e.currentTarget.parentElement?.getBoundingClientRect();
-              if (rect) {
+              if (parent) {
+                const rect = parent.getBoundingClientRect();
                 const pct = Math.max(0, Math.min(100, (ev.clientX - rect.left) / rect.width * 100));
                 setSplitPos(pct);
               }
@@ -17247,7 +18358,7 @@ var TranscodeTab = ({
             window.addEventListener("mousemove", moveHandler);
             window.addEventListener("mouseup", upHandler);
           },
-          children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "w-6 h-6 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-md", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Split, { className: "w-3 h-3" }) })
+          children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "w-7 h-7 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center shadow-lg border border-white/20 active:scale-110 transition-transform", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Split, { className: "w-3.5 h-3.5" }) })
         }
       ),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
@@ -17259,10 +18370,11 @@ var TranscodeTab = ({
           children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "w-12 h-12 rounded-full bg-black/60 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-xl hover:scale-105 active:scale-95 transition-transform", children: isPlaying ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Pause, { className: "w-5 h-5 fill-current" }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Play, { className: "w-5 h-5 fill-current ml-0.5" }) })
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "absolute top-2.5 left-2.5 flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[11px] font-mono text-slate-300", children: [
+      showSplitMode && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "absolute top-3 left-3 bg-black/70 backdrop-blur-md text-white font-bold text-[10px] px-2.5 py-1 rounded-md border border-white/10 uppercase tracking-wider", children: "ORIGINAL" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "absolute bottom-2.5 left-2.5 flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[11px] font-mono text-slate-300", children: [
         /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { children: [
           source.width,
-          "x",
+          "\xD7",
           source.height
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\xB7" }),
@@ -17276,19 +18388,19 @@ var TranscodeTab = ({
           "s"
         ] })
       ] }),
-      latestEncodedUrl && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
         "button",
         {
           type: "button",
           onClick: () => setShowSplitMode(!showSplitMode),
-          className: `absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${showSplitMode ? "bg-amber-500 text-black" : "bg-black/70 backdrop-blur-md text-white border border-white/10"}`,
+          className: `absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-md ${showSplitMode ? "bg-amber-500 text-slate-950 font-bold" : "bg-black/70 backdrop-blur-md text-white border border-white/10"}`,
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Split, { className: "w-3.5 h-3.5" }),
-            showSplitMode ? "Split Active" : "A/B Preview"
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: showSplitMode ? "Split Comparison Active" : "Enable A/B Comparison" })
           ]
         }
       )
-    ] }) : (
+    ] }) }) : (
       /* Empty State with Drag-and-Drop and Sample Pickers */
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "rounded-2xl border-2 border-dashed border-slate-700/80 bg-slate-900/40 p-6 flex flex-col items-center justify-center text-center space-y-4", children: [
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Film, { className: "w-7 h-7" }) }),
@@ -17346,7 +18458,7 @@ var TranscodeTab = ({
         /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex items-center gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "w-7 h-7 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-400", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Zap, { className: "w-4 h-4" }) }),
           /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[11px] text-slate-400 uppercase tracking-wider font-medium", children: "Active Preset" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[11px] text-slate-400 uppercase tracking-wider font-medium", children: "Active Encoding Preset" }),
             /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("h4", { className: "text-sm font-bold text-white", children: preset.name })
           ] })
         ] }),
@@ -17356,39 +18468,31 @@ var TranscodeTab = ({
             type: "button",
             onClick: onOpenPresetsModal,
             className: "px-2.5 py-1 text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg border border-amber-500/20 transition-colors",
-            children: "Change"
+            children: "Change Preset"
           }
         )
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "text-xs text-slate-400 leading-relaxed", children: preset.description }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "grid grid-cols-2 gap-2 pt-1 text-[11px] font-mono", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px] font-mono", children: [
         /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "bg-slate-950/60 p-2 rounded-xl border border-white/5", children: [
           /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "VIDEO CODEC" }),
           /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-slate-200 truncate block", children: preset.video.codec })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "bg-slate-950/60 p-2 rounded-xl border border-white/5", children: [
           /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "QUALITY / RF" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-slate-200 block", children: preset.video.qualityMode === "rf" ? `Constant RF ${preset.video.rfValue}` : `${preset.video.bitrateKbps} kbps 2-pass` })
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-slate-200 block", children: preset.video.qualityMode === "rf" ? `Constant RF ${preset.video.rfValue}` : `${preset.video.bitrateKbps} kbps` })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "bg-slate-950/60 p-2 rounded-xl border border-white/5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "DIMENSIONS" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "TARGET RESOLUTION" }),
           /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "text-slate-200 block", children: [
             preset.dimensions.width,
-            "x",
-            preset.dimensions.height,
-            " (",
-            preset.dimensions.aspectRatio,
-            ")"
+            "\xD7",
+            preset.dimensions.height
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "bg-slate-950/60 p-2 rounded-xl border border-white/5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "AUDIO MIXDOWN" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "text-slate-200 block", children: [
-            preset.audio[0]?.mixdown || "Stereo",
-            " (",
-            preset.audio[0]?.codec || "AAC",
-            ")"
-          ] })
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "SIMULATION" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-emerald-400 truncate block", children: preset.deviceProfile?.profile && preset.deviceProfile.profile !== "none" ? preset.deviceProfile.profile : "Neutral Profile" })
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
@@ -17399,7 +18503,7 @@ var TranscodeTab = ({
           className: "w-full py-1.5 text-xs text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5 transition-colors border-t border-slate-800/80 mt-1",
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(SlidersHorizontal, { className: "w-3 h-3 text-amber-400" }),
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "Tune Video, Audio, Cropping & Filters" })
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "Open HandBrake Inspector (15 Enhancement Sliders, Motion Blur, Upscaling)" })
           ]
         }
       )
@@ -17471,7 +18575,7 @@ var PresetsTab = ({
   const [newPresetCodec, setNewPresetCodec] = (0, import_react7.useState)("H.265 (HEVC 10-bit)");
   const [newPresetRf, setNewPresetRf] = (0, import_react7.useState)(22);
   const [newPresetResolution, setNewPresetResolution] = (0, import_react7.useState)("1080p");
-  const categories = ["All", "Apple Devices", "General", "Web", "Matroska", "Production", "Custom"];
+  const categories = ["All", "Enhancement Presets", "Apple Devices", "General", "Web", "Matroska", "Production", "Custom"];
   const filteredPresets = presets.filter((p) => {
     const matchesCat = selectedCategory === "All" || p.category === selectedCategory;
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.description.toLowerCase().includes(searchQuery.toLowerCase()) || p.video.codec.toLowerCase().includes(searchQuery.toLowerCase());
@@ -18069,7 +19173,11 @@ var VideoStudioTab = ({
   source,
   onUpdatePreset
 }) => {
-  const [activeSection, setActiveSection] = (0, import_react9.useState)("video");
+  const [activeTab, setActiveTab] = (0, import_react9.useState)("summary");
+  const enhancement = preset.enhancement || DEFAULT_ENHANCEMENT;
+  const deviceProfile = preset.deviceProfile || DEFAULT_DEVICE_PROFILE;
+  const motionBlur = preset.motionBlur || DEFAULT_MOTION_BLUR;
+  const upscale = preset.upscale || DEFAULT_UPSCALE;
   const updateVideo = (partial) => {
     onUpdatePreset({
       ...preset,
@@ -18086,6 +19194,39 @@ var VideoStudioTab = ({
     onUpdatePreset({
       ...preset,
       filters: { ...preset.filters, ...partial }
+    });
+  };
+  const updateEnhancement = (partial) => {
+    onUpdatePreset({
+      ...preset,
+      enhancement: { ...enhancement, ...partial }
+    });
+  };
+  const resetSingleEnhancement = (key) => {
+    updateEnhancement({ [key]: DEFAULT_ENHANCEMENT[key] });
+  };
+  const resetAllEnhancements = () => {
+    onUpdatePreset({
+      ...preset,
+      enhancement: { ...DEFAULT_ENHANCEMENT }
+    });
+  };
+  const updateDeviceProfile = (partial) => {
+    onUpdatePreset({
+      ...preset,
+      deviceProfile: { ...deviceProfile, ...partial }
+    });
+  };
+  const updateMotionBlur = (partial) => {
+    onUpdatePreset({
+      ...preset,
+      motionBlur: { ...motionBlur, ...partial }
+    });
+  };
+  const updateUpscale = (partial) => {
+    onUpdatePreset({
+      ...preset,
+      upscale: { ...upscale, ...partial }
     });
   };
   const addAudioTrack = () => {
@@ -18117,150 +19258,1261 @@ var VideoStudioTab = ({
       audio: preset.audio.map((t) => t.id === id ? { ...t, ...partial } : t)
     });
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-4 text-slate-100 pb-20", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+  const tabs = [
+    { id: "summary", label: "Summary", icon: Info },
+    { id: "dimensions", label: "Dimensions", icon: Crop },
+    { id: "filters", label: "Filters", icon: Sparkles },
+    { id: "enhancement", label: "Enhancement", icon: WandSparkles },
+    { id: "device-profile", label: "Device Profile", icon: Smartphone },
+    { id: "motion-blur", label: "Motion Blur", icon: Film },
+    { id: "video", label: "Video", icon: Video },
+    { id: "audio", label: "Audio", icon: Volume2 },
+    { id: "subtitles", label: "Subtitles", icon: Captions },
+    { id: "chapters", label: "Chapters", icon: ListOrdered }
+  ];
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-4 text-slate-100 pb-24", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex items-center justify-between", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
       /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h1", { className: "text-xl font-bold tracking-tight text-white flex items-center gap-2", children: [
-        "Video Studio",
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20", children: "Inspector" })
+        "HandBrake Inspector",
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20", children: "v1.9.0" })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("p", { className: "text-xs text-slate-400", children: [
-        'Fine-tune encoding parameters for "',
-        preset.name,
-        '"'
+        "Configuring: ",
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-300 font-semibold", children: preset.name })
       ] })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "grid grid-cols-5 p-1 bg-slate-900 rounded-xl border border-slate-800 text-[11px] font-medium", children: [
-      { id: "video", label: "Video", icon: Film },
-      { id: "dimensions", label: "Size", icon: Crop },
-      { id: "filters", label: "Filters", icon: Sparkles },
-      { id: "audio", label: "Audio", icon: Volume2 },
-      { id: "subtitles", label: "Subs", icon: Captions }
-    ].map((sec) => {
-      const Icon2 = sec.icon;
-      const isActive = activeSection === sec.id;
+    ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex overflow-x-auto p-1 bg-slate-900/90 rounded-xl border border-slate-800 gap-1 scrollbar-none", children: tabs.map((tab) => {
+      const Icon2 = tab.icon;
+      const isActive = activeTab === tab.id;
       return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
         "button",
         {
           type: "button",
-          onClick: () => setActiveSection(sec.id),
-          className: `flex flex-col items-center justify-center py-2 rounded-lg transition-colors gap-1 ${isActive ? "bg-amber-500 text-slate-950 font-bold shadow-sm" : "text-slate-400 hover:text-slate-200"}`,
+          onClick: () => setActiveTab(tab.id),
+          className: `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${isActive ? "bg-amber-500 text-slate-950 shadow-md font-bold" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"}`,
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Icon2, { className: "w-4 h-4" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: sec.label })
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Icon2, { className: "w-3.5 h-3.5" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: tab.label })
           ]
         },
-        sec.id
+        tab.id
       );
     }) }),
-    activeSection === "video" && /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-4", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Film, { className: "w-3.5 h-3.5 text-amber-400" }),
-          "Video Codec & Hardware Engine"
-        ] }),
+    activeTab === "summary" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Info, { className: "w-3.5 h-3.5 text-amber-400" }),
+        "Preset Summary & Container"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4", children: [
         /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Video Encoder" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Container Format" }),
           /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
             "select",
             {
-              value: preset.video.codec,
-              onChange: (e) => updateVideo({ codec: e.target.value }),
+              value: preset.container,
+              onChange: (e) => onUpdatePreset({ ...preset, container: e.target.value }),
               className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "H.265 (HEVC 10-bit)", children: "H.265 / HEVC 10-bit (Apple VideoToolbox)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "H.264 (VideoToolbox / AVC)", children: "H.264 / AVC (Apple VideoToolbox)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "AV1 (SVT-AV1)", children: "AV1 (Next-Gen High Efficiency)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "Apple ProRes 422", children: "Apple ProRes 422 (Broadcast Master)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "VP9", children: "Google VP9" })
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "mp4", children: "MP4 (.mp4 / .m4v)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "mkv", children: "Matroska (.mkv)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "webm", children: "WebM (.webm)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "mov", children: "QuickTime (.mov)" })
               ]
             }
           )
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-white/5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-2.5", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "w-7 h-7 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Zap, { className: "w-4 h-4" }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white block", children: "Apple VideoToolbox HW" }),
-              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Uses A17 Pro / M-series Media Engine" })
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white block", children: "Passthru Common Metadata" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Preserve title, artist, year, and cover art tags" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("input", { type: "checkbox", defaultChecked: true, className: "w-4 h-4 accent-amber-500" })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/60 border border-slate-800/80", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-500 uppercase block font-semibold", children: "Video" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-slate-200 block truncate", children: preset.video.codec }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-amber-400", children: preset.video.framerate === "same" ? "VFR (Source FPS)" : `${preset.video.framerate} FPS` })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/60 border border-slate-800/80", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-500 uppercase block font-semibold", children: "Dimensions" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-bold text-slate-200 block", children: [
+            preset.dimensions.width,
+            " \xD7 ",
+            preset.dimensions.height
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-[10px] text-slate-400", children: [
+            preset.dimensions.aspectRatio,
+            " Aspect"
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/60 border border-slate-800/80", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-500 uppercase block font-semibold", children: "Enhancement" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-slate-200 block", children: enhancement.sharpness > 0 || enhancement.noiseReduction > 0 ? "Active Engine" : "Neutral" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-emerald-400", children: deviceProfile.profile !== "none" ? deviceProfile.profile : "Standard Profile" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/60 border border-slate-800/80", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-500 uppercase block font-semibold", children: "Audio" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-slate-200 block", children: preset.audio[0]?.codec || "AAC" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-[10px] text-slate-400", children: [
+            preset.audio[0]?.bitrateKbps || 160,
+            " kbps"
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1.5 pt-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("label", { className: "text-xs text-slate-300 font-medium flex items-center justify-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Output Canvas Test Pattern & Preview" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] font-mono text-slate-500", children: "100% Rec.709 Color Bars" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "w-full h-36 rounded-xl overflow-hidden border border-slate-800 relative bg-black flex flex-col", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex-1 flex", children: ["#c0c0c0", "#c0c000", "#00c0c0", "#00c000", "#c000c0", "#c00000", "#0000c0"].map((color, i) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex-1 h-full", style: { backgroundColor: color } }, i)) }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "h-6 flex", children: ["#0000c0", "#131313", "#c000c0", "#131313", "#00c0c0", "#131313", "#c0c0c0"].map((color, i) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex-1 h-full", style: { backgroundColor: color } }, i)) }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "h-8 flex", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "w-1/6 bg-[#00214c] h-full" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "w-1/6 bg-[#ffffff] h-full" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "w-1/6 bg-[#32006a] h-full" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "w-1/2 bg-[#131313] h-full flex items-center justify-between px-3 text-[10px] font-mono text-slate-400", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { children: [
+                preset.dimensions.width,
+                "\xD7",
+                preset.dimensions.height
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-bold", children: preset.video.codec.split(" ")[0] })
             ] })
+          ] })
+        ] })
+      ] })
+    ] }) }),
+    activeTab === "dimensions" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Crop, { className: "w-3.5 h-3.5 text-amber-400" }),
+        "Source & Final Dimensions"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950 border border-white/5 grid grid-cols-3 text-center", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400 block", children: "Storage Size" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white", children: source ? `${source.width} \xD7 ${source.height}` : "1920 \xD7 1080" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400 block", children: "Display Size" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white", children: source ? `${source.width} \xD7 ${source.height}` : "1920 \xD7 1080" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400 block", children: "Aspect Ratio" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-amber-400", children: source ? `${(source.width / (source.height || 1)).toFixed(2)}:1` : "16:9" })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Output Width" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "number",
+              value: preset.dimensions.width,
+              onChange: (e) => updateDimensions({ width: parseInt(e.target.value, 10) || 1920 }),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Output Height" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "number",
+              value: preset.dimensions.height,
+              onChange: (e) => updateDimensions({ height: parseInt(e.target.value, 10) || 1080 }),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3.5 rounded-xl bg-slate-950 border border-amber-500/20 space-y-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Maximize2, { className: "w-4 h-4 text-amber-400" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white block", children: "Intelligent Resolution Upscaling" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Lanczos & Bicubic high-fidelity interpolation" })
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Allow Upscaling" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "input",
+              {
+                type: "checkbox",
+                checked: upscale.allowUpscaling,
+                onChange: (e) => updateUpscale({ allowUpscaling: e.target.checked }),
+                className: "w-4 h-4 accent-amber-500"
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2", children: [
+          { factor: 1, label: "1x (Original)" },
+          { factor: 2, label: "2x Upscale" },
+          { factor: 4, label: "4x Upscale" },
+          { factor: 8, label: "8x Extreme" }
+        ].map((item) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+          "button",
+          {
+            type: "button",
+            onClick: () => {
+              const w = (source?.width || 1920) * item.factor;
+              const h = (source?.height || 1080) * item.factor;
+              updateUpscale({ multiplier: item.factor });
+              updateDimensions({ width: w, height: h });
+            },
+            className: `py-2 px-2.5 rounded-lg text-xs font-semibold border transition-all ${upscale.multiplier === item.factor ? "bg-amber-500/10 border-amber-500 text-amber-300" : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"}`,
+            children: item.label
+          },
+          item.factor
+        )) }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Scaling Algorithm" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+            "select",
+            {
+              value: upscale.algorithm,
+              onChange: (e) => updateUpscale({ algorithm: e.target.value }),
+              className: "w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "lanczos", children: "Lanczos-3 (Highest Sharpness & Detail Retention)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "bicubic", children: "Bicubic (Balanced Natural Smoothness)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "bilinear", children: "Bilinear (Fast / Resource Efficient)" })
+              ]
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-3 pt-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("h4", { className: "text-xs font-bold text-slate-300", children: "Orientation & Cropping" }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-2 gap-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-400", children: "Rotation" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+              "select",
+              {
+                value: preset.filters.rotation,
+                onChange: (e) => updateFilters({ rotation: parseInt(e.target.value, 10) }),
+                className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "0", children: "0\xB0 (None)" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "90", children: "90\xB0 Clockwise" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "180", children: "180\xB0 Inverted" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "270", children: "270\xB0 Counter-Clockwise" })
+                ]
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-white/5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs text-white", children: "Flip Horizontally" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "input",
+              {
+                type: "checkbox",
+                checked: preset.filters.flipHorizontal,
+                onChange: (e) => updateFilters({ flipHorizontal: e.target.checked }),
+                className: "w-4 h-4 accent-amber-500"
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950 border border-white/5 space-y-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-medium text-slate-300", children: "Pixel Cropping Margins" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => updateDimensions({ cropTop: 0, cropBottom: 0, cropLeft: 0, cropRight: 0 }),
+                className: "text-[10px] text-amber-400 hover:underline",
+                children: "Clear All"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-4 gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-[10px] text-slate-500 block", children: "Top" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+                "input",
+                {
+                  type: "number",
+                  value: preset.dimensions.cropTop,
+                  onChange: (e) => updateDimensions({ cropTop: parseInt(e.target.value, 10) || 0 }),
+                  className: "w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white font-mono"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-[10px] text-slate-500 block", children: "Bottom" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+                "input",
+                {
+                  type: "number",
+                  value: preset.dimensions.cropBottom,
+                  onChange: (e) => updateDimensions({ cropBottom: parseInt(e.target.value, 10) || 0 }),
+                  className: "w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white font-mono"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-[10px] text-slate-500 block", children: "Left" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+                "input",
+                {
+                  type: "number",
+                  value: preset.dimensions.cropLeft,
+                  onChange: (e) => updateDimensions({ cropLeft: parseInt(e.target.value, 10) || 0 }),
+                  className: "w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white font-mono"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-[10px] text-slate-500 block", children: "Right" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+                "input",
+                {
+                  type: "number",
+                  value: preset.dimensions.cropRight,
+                  onChange: (e) => updateDimensions({ cropRight: parseInt(e.target.value, 10) || 0 }),
+                  className: "w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white font-mono"
+                }
+              )
+            ] })
+          ] })
+        ] })
+      ] })
+    ] }) }),
+    activeTab === "filters" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Sparkles, { className: "w-3.5 h-3.5 text-amber-400" }),
+        "Standard Video Processing Filters"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Deinterlace Filter" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+            "select",
+            {
+              value: preset.filters.deinterlace,
+              onChange: (e) => updateFilters({ deinterlace: e.target.value }),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "off", children: "Off (Progressive Scan)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "decomb", children: "Decomb (Motion Adaptive)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "yadif", children: "Yadif (High Precision)" })
+              ]
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Classic Denoise" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+            "select",
+            {
+              value: preset.filters.denoise,
+              onChange: (e) => updateFilters({ denoise: e.target.value }),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "off", children: "Off" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "hqdn3d", children: "hqdn3d (Spatial-Temporal 3D)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "nlmeans", children: "NLMeans (Non-Local Means)" })
+              ]
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Denoise Strength" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+            "select",
+            {
+              value: preset.filters.denoiseStrength,
+              onChange: (e) => updateFilters({ denoiseStrength: e.target.value }),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "light", children: "Light" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "medium", children: "Medium" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "strong", children: "Strong" })
+              ]
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Unsharp Mask Sharpening" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+            "select",
+            {
+              value: preset.filters.sharpen,
+              onChange: (e) => updateFilters({ sharpen: e.target.value }),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "off", children: "Off" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "unsharp", children: "Unsharp (Classic Edge Sharpener)" })
+              ]
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-white/5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white block", children: "Color Grayscale" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Discard chroma channels for pure monochrome output" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+          "input",
+          {
+            type: "checkbox",
+            checked: preset.filters.grayscale,
+            onChange: (e) => updateFilters({ grayscale: e.target.checked }),
+            className: "w-4 h-4 accent-amber-500"
+          }
+        )
+      ] })
+    ] }) }),
+    activeTab === "enhancement" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(WandSparkles, { className: "w-3.5 h-3.5 text-amber-400" }),
+            "Advanced Video Enhancement Controls"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "text-[11px] text-slate-400", children: "Real-time color grading, edge enhancement, and noise reduction" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+          "button",
+          {
+            type: "button",
+            onClick: resetAllEnhancements,
+            className: "flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-xs font-semibold transition-colors",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(RefreshCw, { className: "w-3.5 h-3.5" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Reset All" })
+            ]
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-3.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Sharpness: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.sharpness })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("sharpness"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (0)"
+              }
+            )
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
             "input",
             {
-              type: "checkbox",
-              checked: preset.video.hardwareAcceleration,
-              onChange: (e) => updateVideo({ hardwareAcceleration: e.target.checked }),
-              className: "w-4 h-4 accent-amber-500"
+              type: "range",
+              min: "0",
+              max: "100",
+              value: enhancement.sharpness,
+              onChange: (e) => updateEnhancement({ sharpness: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-2 gap-2.5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Framerate (FPS)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
-              "select",
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Noise Reduction: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.noiseReduction })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
               {
-                value: preset.video.framerate,
-                onChange: (e) => updateVideo({ framerate: e.target.value === "same" ? "same" : parseInt(e.target.value, 10) }),
-                className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "same", children: "Same as Source" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "60", children: "60 FPS (Smooth)" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "30", children: "30 FPS (Standard)" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "24", children: "24 FPS (Cinematic)" })
-                ]
+                type: "button",
+                onClick: () => resetSingleEnhancement("noiseReduction"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (0)"
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Framerate Mode" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
-              "select",
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "0",
+              max: "100",
+              value: enhancement.noiseReduction,
+              onChange: (e) => updateEnhancement({ noiseReduction: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Film Grain: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.filmGrain })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
               {
-                value: preset.video.framerateMode,
-                onChange: (e) => updateVideo({ framerateMode: e.target.value }),
-                className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "vfr", children: "Peak Framerate (VFR)" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "cfr", children: "Constant Framerate (CFR)" })
-                ]
+                type: "button",
+                onClick: () => resetSingleEnhancement("filmGrain"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (0)"
               }
             )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "0",
+              max: "100",
+              value: enhancement.filmGrain,
+              onChange: (e) => updateEnhancement({ filmGrain: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Contrast: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.contrast })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("contrast"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (50)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "0",
+              max: "100",
+              value: enhancement.contrast,
+              onChange: (e) => updateEnhancement({ contrast: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Brightness: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.brightness })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("brightness"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (50)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "0",
+              max: "100",
+              value: enhancement.brightness,
+              onChange: (e) => updateEnhancement({ brightness: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Saturation: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-amber-400 font-mono", children: [
+                enhancement.saturation,
+                "%"
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("saturation"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (100)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "0",
+              max: "200",
+              value: enhancement.saturation,
+              onChange: (e) => updateEnhancement({ saturation: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Gamma Correction: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.gamma.toFixed(2) })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("gamma"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (1.00)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "0.1",
+              max: "3.0",
+              step: "0.05",
+              value: enhancement.gamma,
+              onChange: (e) => updateEnhancement({ gamma: parseFloat(e.target.value) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Exposure (EV): ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.exposure > 0 ? `+${enhancement.exposure.toFixed(1)}` : enhancement.exposure.toFixed(1) })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("exposure"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (0.0)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "-2.0",
+              max: "2.0",
+              step: "0.1",
+              value: enhancement.exposure,
+              onChange: (e) => updateEnhancement({ exposure: parseFloat(e.target.value) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Clarity: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.clarity })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("clarity"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (0)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "0",
+              max: "100",
+              value: enhancement.clarity,
+              onChange: (e) => updateEnhancement({ clarity: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Detail Enhancement: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.detailEnhancement })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("detailEnhancement"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (0)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "0",
+              max: "100",
+              value: enhancement.detailEnhancement,
+              onChange: (e) => updateEnhancement({ detailEnhancement: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Color Temperature: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-amber-400 font-mono", children: [
+                enhancement.colorTemperature,
+                "K"
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("colorTemperature"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (6500K)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "2000",
+              max: "10000",
+              step: "100",
+              value: enhancement.colorTemperature,
+              onChange: (e) => updateEnhancement({ colorTemperature: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex justify-between text-[10px] text-slate-500 font-mono", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "2000K (Warm Candle)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "6500K (Daylight)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "10000K (Cool Sky)" })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 flex items-center justify-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white block", children: "White Balance Mode" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Choose between Auto adaptive balance or Manual Kelvin" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex items-center gap-2", children: ["auto", "manual"].map((mode) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "button",
+            {
+              type: "button",
+              onClick: () => updateEnhancement({ whiteBalanceMode: mode }),
+              className: `px-3 py-1 rounded-lg text-xs font-semibold capitalize border ${enhancement.whiteBalanceMode === mode ? "bg-amber-500 text-slate-950 font-bold border-amber-500" : "bg-slate-900 border-slate-800 text-slate-400"}`,
+              children: mode
+            },
+            mode
+          )) })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Highlights: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.highlights > 0 ? `+${enhancement.highlights}` : enhancement.highlights })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("highlights"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (0)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "-100",
+              max: "100",
+              value: enhancement.highlights,
+              onChange: (e) => updateEnhancement({ highlights: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Shadows: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-mono", children: enhancement.shadows > 0 ? `+${enhancement.shadows}` : enhancement.shadows })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("shadows"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (0)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "-100",
+              max: "100",
+              value: enhancement.shadows,
+              onChange: (e) => updateEnhancement({ shadows: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+              "Vibrance: ",
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-amber-400 font-mono", children: [
+                enhancement.vibrance,
+                "%"
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => resetSingleEnhancement("vibrance"),
+                className: "text-[10px] text-slate-400 hover:text-white",
+                children: "Reset (100)"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "range",
+              min: "0",
+              max: "200",
+              value: enhancement.vibrance,
+              onChange: (e) => updateEnhancement({ vibrance: parseInt(e.target.value, 10) }),
+              className: "w-full accent-amber-500"
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "pt-4 border-t border-slate-800 space-y-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h4", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Layers, { className: "w-3.5 h-3.5 text-amber-400" }),
+          "Additional Image Processing Modules"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-2.5", children: [
+          { key: "aiDenoise", label: "AI Algorithmic Denoising", desc: "Bilateral edge-preserving noise filter" },
+          { key: "debanding", label: "Debanding", desc: "Eliminates color stepping & 8-bit gradient rings" },
+          { key: "dehazing", label: "Dehazing", desc: "Recovers depth contrast in foggy / hazy frames" },
+          { key: "edgeEnhancement", label: "Edge Enhancement", desc: "Smart high-pass contrast on fine contours" },
+          { key: "chromaNoiseReduction", label: "Chroma Noise Reduction", desc: "Suppresses colored speckle artifacts" },
+          { key: "lumaNoiseReduction", label: "Luma Noise Reduction", desc: "Smooths luminance grain without blur" },
+          { key: "colorCorrection", label: "Color Correction", desc: "Natural color space normalization" },
+          { key: "motionBlurReduction", label: "Motion Blur Reduction", desc: "Deconvolution sharpening on motion" },
+          { key: "filmGrainSimulation", label: "Film Grain Simulation", desc: "Organic 35mm photochemical texture" },
+          { key: "artificialSharpening", label: "Artificial Sharpening", desc: "High-contrast edge boost" }
+        ].map((item) => {
+          const isChecked = Boolean(enhancement[item.key]);
+          return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+            "div",
+            {
+              onClick: () => updateEnhancement({ [item.key]: !isChecked }),
+              className: `p-3 rounded-xl border cursor-pointer transition-all flex items-start justify-between gap-2 ${isChecked ? "bg-amber-500/10 border-amber-500/40 text-white" : "bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700"}`,
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white block", children: item.label }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400 block", children: item.desc })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+                  "input",
+                  {
+                    type: "checkbox",
+                    checked: isChecked,
+                    onChange: () => {
+                    },
+                    className: "w-4 h-4 accent-amber-500 mt-0.5"
+                  }
+                )
+              ]
+            },
+            item.key
+          );
+        }) })
+      ] })
+    ] }) }),
+    activeTab === "device-profile" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Smartphone, { className: "w-3.5 h-3.5 text-amber-400" }),
+          "Recording Quality Profile Simulation"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "text-[11px] text-slate-400", children: "Simulate optical, sensor, color, and dynamic range traits of different recording hardware" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3.5 rounded-xl bg-slate-950 border border-white/5 space-y-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white", children: "Simulation Profile Intensity" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-mono text-amber-400", children: [
+            deviceProfile.intensity,
+            "%"
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+          "input",
+          {
+            type: "range",
+            min: "0",
+            max: "100",
+            value: deviceProfile.intensity,
+            onChange: (e) => updateDeviceProfile({ intensity: parseInt(e.target.value, 10) }),
+            className: "w-full accent-amber-500"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-2.5", children: [
+        {
+          id: "none",
+          title: "Neutral / Passthrough",
+          desc: "No device simulation applied. Raw source camera characteristics preserved.",
+          badge: "Standard"
+        },
+        {
+          id: "normal-hd",
+          title: "Normal HD Recording",
+          desc: "Simulate standard 1080p mobile or camera footage with balanced clarity and contrast.",
+          badge: "1080p Standard"
+        },
+        {
+          id: "low-class-mobile",
+          title: "Low Class Mobile Recording",
+          desc: "Entry-level budget smartphone sensor. Reduced sharpness, visible block compression, moderate noise, crushed dynamic range, and slight motion blur.",
+          badge: "Budget Phone"
+        },
+        {
+          id: "standard-mobile",
+          title: "Standard Mobile Recording",
+          desc: "Average mid-range smartphone camera quality with standard digital sharpening and consumer tone curve.",
+          badge: "Mid-Tier Mobile"
+        },
+        {
+          id: "high-quality-android",
+          title: "High Quality Android Recording",
+          desc: "Flagship Android smartphone processing with vibrant punchy saturation, strong local HDR contrast, and vivid colors.",
+          badge: "Flagship Android"
+        },
+        {
+          id: "iphone-quality",
+          title: "iPhone Quality",
+          desc: "Simulate flagship iPhone video characteristics: organic sharpness, balanced contrast, realistic skin tones, smooth highlight roll-off, and zero artificial halos.",
+          badge: "Apple iPhone"
+        },
+        {
+          id: "professional-camera",
+          title: "Professional Camera",
+          desc: "DSLR / cinema camera emulation: soft organic micro-contrast, wide dynamic range, cinema log curve, and zero digital edge enhancement.",
+          badge: "DSLR / Cinema"
+        },
+        {
+          id: "cinematic",
+          title: "Cinematic Recording",
+          desc: "Kodak 2383-inspired film emulation with rich shadows, warm highlights, controlled highlight roll-off, and subtle 35mm grain.",
+          badge: "35mm Film"
+        }
+      ].map((p) => {
+        const isSelected = deviceProfile.profile === p.id;
+        return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+          "div",
+          {
+            onClick: () => updateDeviceProfile({ profile: p.id }),
+            className: `p-3.5 rounded-xl border cursor-pointer transition-all flex items-start justify-between gap-3 ${isSelected ? "bg-amber-500/10 border-amber-500 text-white shadow-sm" : "bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700"}`,
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-2", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white", children: p.title }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-slate-800 text-amber-400", children: p.badge })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "text-[11px] text-slate-400 leading-relaxed", children: p.desc })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+                "div",
+                {
+                  className: `w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${isSelected ? "border-amber-500 bg-amber-500 text-slate-950" : "border-slate-700"}`,
+                  children: isSelected && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Check, { className: "w-3.5 h-3.5 stroke-[3]" })
+                }
+              )
+            ]
+          },
+          p.id
+        );
+      }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950 border border-slate-800/80 text-[11px] text-slate-400 flex items-start gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Info, { className: "w-4 h-4 text-amber-400 shrink-0 mt-0.5" }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("strong", { children: "Notice:" }),
+          " These are visual simulation profiles designed to simulate visual characteristics of footage recorded on various device classes. They do not alter native sensor firmware."
+        ] })
+      ] })
+    ] }) }),
+    activeTab === "motion-blur" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Film, { className: "w-3.5 h-3.5 text-amber-400" }),
+            "Motion Blur & Shutter Speed Controls"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "text-[11px] text-slate-400", children: "Simulate mechanical shutter angles and directional motion vectors" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-semibold text-white", children: "Enable Motion Blur" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "checkbox",
+              checked: motionBlur.enabled,
+              onChange: (e) => updateMotionBlur({ enabled: e.target.checked }),
+              className: "w-4 h-4 accent-amber-500"
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/70 border border-white/5 space-y-1.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-medium text-slate-200", children: [
+            "Motion Blur Intensity: ",
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-amber-400 font-mono", children: [
+              motionBlur.intensity,
+              "%"
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "button",
+            {
+              type: "button",
+              onClick: () => updateMotionBlur({ intensity: 40 }),
+              className: "text-[10px] text-slate-400 hover:text-white",
+              children: "Reset (40%)"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+          "input",
+          {
+            type: "range",
+            min: "0",
+            max: "100",
+            value: motionBlur.intensity,
+            onChange: (e) => updateMotionBlur({ intensity: parseInt(e.target.value, 10) }),
+            className: "w-full accent-amber-500"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Motion Blur Direction" }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2", children: [
+          { id: "natural", label: "Natural Flow" },
+          { id: "horizontal", label: "Horizontal Pan" },
+          { id: "vertical", label: "Vertical Tilt" },
+          { id: "radial", label: "Radial Zoom" }
+        ].map((d) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+          "button",
+          {
+            type: "button",
+            onClick: () => updateMotionBlur({ direction: d.id }),
+            className: `py-2 px-3 rounded-lg text-xs font-semibold border transition-all ${motionBlur.direction === d.id ? "bg-amber-500/10 border-amber-500 text-amber-300 font-bold" : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"}`,
+            children: d.label
+          },
+          d.id
+        )) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Shutter Speed Simulation (180\xB0 Rule)" }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+          "select",
+          {
+            value: motionBlur.shutterSpeed,
+            onChange: (e) => updateMotionBlur({ shutterSpeed: e.target.value }),
+            className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "1/24", children: "1/24s (Extreme Film Motion Blur / Dreamlike)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "1/30", children: "1/30s (Slow Shutter / Broadcast Blur)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "1/60", children: "1/60s (Standard 180\xB0 Shutter for 30fps)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "1/120", children: "1/120s (Fast Shutter / Crisp Action)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "1/240", children: "1/240s (Sports / Ultra Fast Shutter)" })
+            ]
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+          "div",
+          {
+            onClick: () => updateMotionBlur({ motionBlurReduction: !motionBlur.motionBlurReduction }),
+            className: `p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${motionBlur.motionBlurReduction ? "bg-amber-500/10 border-amber-500 text-white" : "bg-slate-950 border-slate-800 text-slate-400"}`,
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold block text-white", children: "Motion Blur Reduction" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "De-blur fast motion" })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("input", { type: "checkbox", checked: motionBlur.motionBlurReduction, onChange: () => {
+              }, className: "w-4 h-4 accent-amber-500" })
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+          "div",
+          {
+            onClick: () => updateMotionBlur({ frameInterpolation: !motionBlur.frameInterpolation }),
+            className: `p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${motionBlur.frameInterpolation ? "bg-amber-500/10 border-amber-500 text-white" : "bg-slate-950 border-slate-800 text-slate-400"}`,
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold block text-white", children: "Frame Interpolation" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Synthesize intermediate frames" })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("input", { type: "checkbox", checked: motionBlur.frameInterpolation, onChange: () => {
+              }, className: "w-4 h-4 accent-amber-500" })
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+          "div",
+          {
+            onClick: () => updateMotionBlur({ opticalFlow: !motionBlur.opticalFlow }),
+            className: `p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${motionBlur.opticalFlow ? "bg-amber-500/10 border-amber-500 text-white" : "bg-slate-950 border-slate-800 text-slate-400"}`,
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold block text-white", children: "Optical Flow Vectors" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Per-object motion tracking" })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("input", { type: "checkbox", checked: motionBlur.opticalFlow, onChange: () => {
+              }, className: "w-4 h-4 accent-amber-500" })
+            ]
+          }
+        )
+      ] })
+    ] }) }),
+    activeTab === "video" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Film, { className: "w-3.5 h-3.5 text-amber-400" }),
+        "Video Encoder & Compression Settings"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Video Encoder" }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+          "select",
+          {
+            value: preset.video.codec,
+            onChange: (e) => updateVideo({ codec: e.target.value }),
+            className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "H.265 (HEVC 10-bit)", children: "H.265 / HEVC 10-bit (Apple VideoToolbox / MediaCodec)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "H.264 (VideoToolbox / AVC)", children: "H.264 / AVC (Universal Compatibility)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "AV1 (SVT-AV1)", children: "AV1 (Next-Generation High Compression)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "Apple ProRes 422", children: "Apple ProRes 422 (Post-Production Master)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "VP9", children: "Google VP9 (Web & YouTube Standard)" })
+            ]
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-2 gap-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Framerate (FPS)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+            "select",
+            {
+              value: preset.video.framerate,
+              onChange: (e) => updateVideo({ framerate: e.target.value === "same" ? "same" : parseInt(e.target.value, 10) }),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "same", children: "Same as Source" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "60", children: "60 FPS" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "50", children: "50 FPS (PAL)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "30", children: "30 FPS (Standard)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "25", children: "25 FPS (PAL Standard)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "24", children: "24 FPS (Cinematic Standard)" })
+              ]
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Framerate Mode" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-2 pt-1", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("label", { className: "flex items-center gap-1.5 text-xs text-slate-300", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+                "input",
+                {
+                  type: "radio",
+                  name: "framerateMode",
+                  value: "vfr",
+                  checked: preset.video.framerateMode === "vfr",
+                  onChange: () => updateVideo({ framerateMode: "vfr" }),
+                  className: "accent-amber-500"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Peak Framerate (VFR)" })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("label", { className: "flex items-center gap-1.5 text-xs text-slate-300", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+                "input",
+                {
+                  type: "radio",
+                  name: "framerateMode",
+                  value: "cfr",
+                  checked: preset.video.framerateMode === "cfr",
+                  onChange: () => updateVideo({ framerateMode: "cfr" }),
+                  className: "accent-amber-500"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Constant (CFR)" })
+            ] })
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3.5 rounded-xl bg-slate-950 border border-white/5 space-y-3", children: [
         /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider", children: "Quality Tuning (Rate Control)" }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[10px]", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("label", { className: "flex items-center gap-2 text-xs font-bold text-white", children: [
             /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-              "button",
+              "input",
               {
-                type: "button",
-                onClick: () => updateVideo({ qualityMode: "rf" }),
-                className: `px-2 py-0.5 rounded font-medium ${preset.video.qualityMode === "rf" ? "bg-amber-500 text-slate-950 font-bold" : "text-slate-400"}`,
-                children: "Constant (RF)"
+                type: "radio",
+                name: "qualityMode",
+                value: "rf",
+                checked: preset.video.qualityMode === "rf",
+                onChange: () => updateVideo({ qualityMode: "rf" }),
+                className: "accent-amber-500"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-              "button",
-              {
-                type: "button",
-                onClick: () => updateVideo({ qualityMode: "bitrate" }),
-                className: `px-2 py-0.5 rounded font-medium ${preset.video.qualityMode === "bitrate" ? "bg-amber-500 text-slate-950 font-bold" : "text-slate-400"}`,
-                children: "Bitrate (2-Pass)"
-              }
-            )
-          ] })
-        ] }),
-        preset.video.qualityMode === "rf" ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between text-xs", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-slate-300", children: "Constant Quality Factor" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-amber-400 font-mono font-bold text-sm", children: [
-              "RF ",
-              preset.video.rfValue
-            ] })
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Constant Quality (CRF / RF)" })
           ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-mono text-amber-400", children: preset.video.qualityMode === "rf" ? `RF ${preset.video.rfValue}` : "Disabled" })
+        ] }),
+        preset.video.qualityMode === "rf" && /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
           /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
             "input",
             {
@@ -18274,335 +20526,260 @@ var VideoStudioTab = ({
           ),
           /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex justify-between text-[10px] text-slate-500 font-mono", children: [
             /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "RF 0 (Lossless)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 font-bold", children: "RF 20\u201322 (Recommended)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "RF 51 (Lowest)" })
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "RF 20 (Visually Lossless)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "RF 51 (Low Quality)" })
           ] })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between text-xs", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-slate-300", children: "Average Bitrate" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-amber-400 font-mono font-bold text-sm", children: [
-              preset.video.bitrateKbps,
-              " kbps"
-            ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between pt-2 border-t border-slate-800", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("label", { className: "flex items-center gap-2 text-xs font-bold text-white", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "input",
+              {
+                type: "radio",
+                name: "qualityMode",
+                value: "bitrate",
+                checked: preset.video.qualityMode === "bitrate",
+                onChange: () => updateVideo({ qualityMode: "bitrate" }),
+                className: "accent-amber-500"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Average Target Bitrate (kbps)" })
           ] }),
+          preset.video.qualityMode === "bitrate" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "input",
+            {
+              type: "number",
+              value: preset.video.bitrateKbps,
+              onChange: (e) => updateVideo({ bitrateKbps: parseInt(e.target.value, 10) || 6e3 }),
+              className: "w-24 bg-slate-900 border border-slate-800 rounded px-2 py-0.5 text-xs text-white text-right font-mono"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between pt-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs text-slate-300", children: "Multi-Pass (2-Pass) Encoding" }),
           /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
             "input",
             {
-              type: "range",
-              min: "500",
-              max: "25000",
-              step: "250",
-              value: preset.video.bitrateKbps,
-              onChange: (e) => updateVideo({ bitrateKbps: parseInt(e.target.value, 10) }),
-              className: "w-full accent-amber-500"
+              type: "checkbox",
+              checked: preset.video.twoPass,
+              onChange: (e) => updateVideo({ twoPass: e.target.checked }),
+              className: "w-4 h-4 accent-amber-500"
             }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between text-xs text-slate-300", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { children: "2-Pass Turbo First Pass" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-              "input",
-              {
-                type: "checkbox",
-                checked: preset.video.turboFirstPass,
-                onChange: (e) => updateVideo({ turboFirstPass: e.target.checked }),
-                className: "w-4 h-4 accent-amber-500"
-              }
-            )
-          ] })
+          )
         ] })
-      ] })
-    ] }),
-    activeSection === "dimensions" && /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-4", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Crop, { className: "w-3.5 h-3.5 text-amber-400" }),
-          "Resolution & Aspect Ratio"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between text-xs text-slate-300 font-medium", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Encoder Speed Preset" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-amber-400 capitalize font-mono", children: preset.video.encoderSpeedPreset })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "grid grid-cols-3 gap-2 text-xs", children: [
-          { label: "4K UHD", w: 3840, h: 2160 },
-          { label: "1080p Full HD", w: 1920, h: 1080 },
-          { label: "720p HD", w: 1280, h: 720 }
-        ].map((res) => {
-          const isSelected = preset.dimensions.width === res.w && preset.dimensions.height === res.h;
-          return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
-            "button",
-            {
-              type: "button",
-              onClick: () => updateDimensions({ width: res.w, height: res.h }),
-              className: `py-2 px-1 rounded-xl text-center font-medium transition-colors ${isSelected ? "bg-amber-500 text-slate-950 font-bold" : "bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700"}`,
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "block", children: res.label }),
-                /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-[10px] opacity-80 font-mono", children: [
-                  res.w,
-                  "x",
-                  res.h
-                ] })
-              ]
-            },
-            res.label
-          );
-        }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-2 gap-2.5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Width (px)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-              "input",
-              {
-                type: "number",
-                value: preset.dimensions.width,
-                onChange: (e) => updateDimensions({ width: parseInt(e.target.value, 10) || 1920 }),
-                className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
-              }
-            )
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Height (px)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-              "input",
-              {
-                type: "number",
-                value: preset.dimensions.height,
-                onChange: (e) => updateDimensions({ height: parseInt(e.target.value, 10) || 1080 }),
-                className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
-              }
-            )
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider", children: "Black Bar Cropping" }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex items-center gap-2", children: ["auto", "custom", "none"].map((mode) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-          "button",
-          {
-            type: "button",
-            onClick: () => updateDimensions({ cropMode: mode }),
-            className: `flex-1 py-1.5 rounded-lg text-xs capitalize font-medium transition-colors ${preset.dimensions.cropMode === mode ? "bg-amber-500 text-slate-950 font-bold" : "bg-slate-950 text-slate-400 border border-slate-800"}`,
-            children: mode
-          },
-          mode
-        )) }),
-        preset.dimensions.cropMode === "custom" && /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-2 gap-2 text-xs", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Top:" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-              "input",
-              {
-                type: "number",
-                value: preset.dimensions.cropTop,
-                onChange: (e) => updateDimensions({ cropTop: parseInt(e.target.value, 10) || 0 }),
-                className: "w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 font-mono"
-              }
-            )
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Bottom:" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-              "input",
-              {
-                type: "number",
-                value: preset.dimensions.cropBottom,
-                onChange: (e) => updateDimensions({ cropBottom: parseInt(e.target.value, 10) || 0 }),
-                className: "w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 font-mono"
-              }
-            )
-          ] })
-        ] })
-      ] })
-    ] }),
-    activeSection === "filters" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Sparkles, { className: "w-3.5 h-3.5 text-amber-400" }),
-        "Image Processing & Transforms"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Rotation" }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px]", children: [0, 90, 180, 270].map((deg) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
-          "button",
-          {
-            type: "button",
-            onClick: () => updateFilters({ rotation: deg }),
-            className: `px-2 py-0.5 rounded font-mono ${preset.filters.rotation === deg ? "bg-amber-500 text-slate-950 font-bold" : "text-slate-400"}`,
-            children: [
-              deg,
-              "\xB0"
-            ]
-          },
-          deg
-        )) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-white/5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-medium text-slate-200", children: "Convert to Black & White (Grayscale)" }),
         /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
           "input",
           {
-            type: "checkbox",
-            checked: preset.filters.grayscale,
-            onChange: (e) => updateFilters({ grayscale: e.target.checked }),
-            className: "w-4 h-4 accent-amber-500"
+            type: "range",
+            min: "0",
+            max: "5",
+            value: ["ultrafast", "veryfast", "faster", "fast", "medium", "slow"].indexOf(preset.video.encoderSpeedPreset),
+            onChange: (e) => {
+              const presetsList = ["ultrafast", "veryfast", "faster", "fast", "medium", "slow"];
+              updateVideo({ encoderSpeedPreset: presetsList[parseInt(e.target.value, 10)] });
+            },
+            className: "w-full accent-amber-500"
           }
-        )
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex justify-between text-[10px] text-slate-500 font-mono", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Ultrafast" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Fast" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Slow (High Compression)" })
+        ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-3 pt-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-2 gap-3", children: [
         /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex justify-between text-xs", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-slate-400", children: "Brightness" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "font-mono text-amber-400", children: [
-              preset.filters.brightness > 0 ? `+${preset.filters.brightness}` : preset.filters.brightness,
-              "%"
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-            "input",
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Encoder Profile" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+            "select",
             {
-              type: "range",
-              min: "-50",
-              max: "50",
-              value: preset.filters.brightness,
-              onChange: (e) => updateFilters({ brightness: parseInt(e.target.value, 10) }),
-              className: "w-full accent-amber-500"
+              value: preset.video.encoderProfile,
+              onChange: (e) => updateVideo({ encoderProfile: e.target.value }),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "auto", children: "Auto" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "baseline", children: "Baseline" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "main", children: "Main" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "high", children: "High" })
+              ]
             }
           )
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex justify-between text-xs", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-slate-400", children: "Contrast" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "font-mono text-amber-400", children: [
-              preset.filters.contrast > 0 ? `+${preset.filters.contrast}` : preset.filters.contrast,
-              "%"
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-            "input",
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-xs text-slate-300 font-medium", children: "Color Space & Range" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+            "select",
             {
-              type: "range",
-              min: "-50",
-              max: "50",
-              value: preset.filters.contrast,
-              onChange: (e) => updateFilters({ contrast: parseInt(e.target.value, 10) }),
-              className: "w-full accent-amber-500"
-            }
-          )
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex justify-between text-xs", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-slate-400", children: "Saturation" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "font-mono text-amber-400", children: [
-              preset.filters.saturation > 0 ? `+${preset.filters.saturation}` : preset.filters.saturation,
-              "%"
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-            "input",
-            {
-              type: "range",
-              min: "-50",
-              max: "50",
-              value: preset.filters.saturation,
-              onChange: (e) => updateFilters({ saturation: parseInt(e.target.value, 10) }),
-              className: "w-full accent-amber-500"
+              value: preset.video.colorSpace,
+              onChange: (e) => updateVideo({ colorSpace: e.target.value }),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "auto", children: "Auto (Match Source)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "bt709", children: "BT.709 (Standard HD / SDR)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "bt2020_hdr", children: "BT.2020 HDR (10-bit High Dynamic Range)" })
+              ]
             }
           )
         ] })
       ] })
     ] }) }),
-    activeSection === "audio" && /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-3", children: [
+    activeTab === "audio" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider", children: [
-          "Audio Tracks (",
-          preset.audio.length,
-          ")"
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Volume2, { className: "w-3.5 h-3.5 text-amber-400" }),
+            "Audio Tracks & Multi-Stream Muxing"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "text-[11px] text-slate-400", children: "Configure CoreAudio AAC, AC3 passthru, gain, and DRC" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
           "button",
           {
             type: "button",
             onClick: addAudioTrack,
-            className: "flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg border border-amber-500/20",
+            className: "flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 text-xs font-bold shadow-sm",
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Plus, { className: "w-3.5 h-3.5" }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Plus, { className: "w-3.5 h-3.5 stroke-[3]" }),
               /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { children: "Add Track" })
             ]
           }
         )
       ] }),
-      preset.audio.map((track, i) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-3", children: preset.audio.map((track, idx) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3.5 rounded-xl bg-slate-950 border border-slate-800/80 space-y-3", children: [
         /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Volume2, { className: "w-4 h-4 text-amber-400" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white", children: track.name })
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "text-xs font-bold text-white", children: [
+            "Track #",
+            idx + 1,
+            ": ",
+            track.name
           ] }),
           preset.audio.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
             "button",
             {
               type: "button",
               onClick: () => removeAudioTrack(track.id),
-              className: "text-slate-500 hover:text-rose-400 p-1",
+              className: "text-red-400 hover:text-red-300 p-1",
               children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Trash2, { className: "w-3.5 h-3.5" })
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-2 gap-2 text-xs", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2.5", children: [
           /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-slate-400", children: "Mixdown" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-[10px] text-slate-400", children: "Codec" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+              "select",
+              {
+                value: track.codec,
+                onChange: (e) => updateAudioTrack(track.id, { codec: e.target.value }),
+                className: "w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white",
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "AAC (CoreAudio)", children: "AAC (CoreAudio)" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "AC3", children: "AC3 Surround" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "Opus", children: "Opus" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "MP3", children: "MP3" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "Auto Passthru", children: "Auto Passthru" })
+                ]
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-[10px] text-slate-400", children: "Bitrate" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+              "select",
+              {
+                value: track.bitrateKbps,
+                onChange: (e) => updateAudioTrack(track.id, { bitrateKbps: parseInt(e.target.value, 10) }),
+                className: "w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white",
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "128", children: "128 kbps" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "160", children: "160 kbps" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "192", children: "192 kbps" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "256", children: "256 kbps" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "320", children: "320 kbps" })
+                ]
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-[10px] text-slate-400", children: "Mixdown" }),
             /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
               "select",
               {
                 value: track.mixdown,
                 onChange: (e) => updateAudioTrack(track.id, { mixdown: e.target.value }),
-                className: "w-full bg-slate-950 border border-slate-800 rounded-lg p-2",
+                className: "w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white",
                 children: [
                   /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "Stereo", children: "Stereo" }),
                   /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "5.1 Surround", children: "5.1 Surround" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "Dolby Pro Logic II", children: "Dolby Pro Logic II" }),
                   /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "Mono", children: "Mono" })
                 ]
               }
             )
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "space-y-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-slate-400", children: "Bitrate" }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
-              "select",
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: "text-[10px] text-slate-400", children: "Gain (dB)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+              "input",
               {
-                value: track.bitrateKbps,
-                onChange: (e) => updateAudioTrack(track.id, { bitrateKbps: parseInt(e.target.value, 10) }),
-                className: "w-full bg-slate-950 border border-slate-800 rounded-lg p-2 font-mono",
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "96", children: "96 kbps" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "128", children: "128 kbps" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "160", children: "160 kbps" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "256", children: "256 kbps" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "320", children: "320 kbps" })
-                ]
+                type: "number",
+                step: "0.5",
+                value: track.gainDb,
+                onChange: (e) => updateAudioTrack(track.id, { gainDb: parseFloat(e.target.value) || 0 }),
+                className: "w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white font-mono"
               }
             )
           ] })
         ] })
-      ] }, track.id))
-    ] }),
-    activeSection === "subtitles" && /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5", children: [
+      ] }, track.id)) })
+    ] }) }),
+    activeTab === "subtitles" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Captions, { className: "w-3.5 h-3.5 text-amber-400" }),
-        "Subtitle Tracks"
+        "Subtitle Streams & Hardcoded Burn-in"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-xl bg-slate-950 border border-white/5 space-y-2 text-xs", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "font-semibold text-white", children: "Burn-in Subtitles (Hardcode)" }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("input", { type: "checkbox", className: "w-4 h-4 accent-amber-500", defaultChecked: true })
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white block", children: "Burn-in Subtitles (Hardsub)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400", children: "Render subtitles directly into video pixels for universal display" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "text-[11px] text-slate-400", children: "Permanently renders subtitle text into video frames for universal playback on devices without soft subtitle support." })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "border border-dashed border-slate-800 rounded-xl p-4 text-center text-xs text-slate-400 space-y-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { children: "Upload .SRT or .VTT file to include subtitles in this encode." }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-          "button",
-          {
-            type: "button",
-            className: "px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors font-medium",
-            children: "Select Subtitle File"
-          }
-        )
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("input", { type: "checkbox", defaultChecked: true, className: "w-4 h-4 accent-amber-500" })
+      ] }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400", children: [
+        "No embedded subtitle streams detected in current source file. You can import external ",
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("code", { children: ".srt" }),
+        " or ",
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("code", { children: ".vtt" }),
+        " sidecar tracks during transcoding."
       ] })
-    ] })
+    ] }) }),
+    activeTab === "chapters" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-4", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ListOrdered, { className: "w-3.5 h-3.5 text-amber-400" }),
+        "Chapter Markers & Segmentation"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "space-y-2", children: [
+        { number: 1, title: "Introduction", timestamp: "00:00:00" },
+        { number: 2, title: "Main Demonstration", timestamp: "00:02:15" },
+        { number: 3, title: "Enhancement Comparison", timestamp: "00:05:40" },
+        { number: 4, title: "Summary & Credits", timestamp: "00:07:30" }
+      ].map((chap) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950 border border-white/5 flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "w-6 h-6 rounded-lg bg-amber-500/10 text-amber-400 font-mono text-xs flex items-center justify-center font-bold", children: chap.number }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-xs font-bold text-white block", children: chap.title }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-slate-400 font-mono", children: chap.timestamp })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20", children: "Active" })
+      ] }, chap.number)) })
+    ] }) })
   ] });
 };
 
@@ -20121,6 +22298,7 @@ function App() {
             source,
             preset: activePreset,
             onSelectSource: (src) => setSource(src),
+            onSelectPreset: (p) => setActivePreset(p),
             onOpenPresetsModal: () => setActiveTab("presets"),
             onOpenStudioTab: () => setActiveTab("studio"),
             onStartEncodeNow: handleStartEncodeNow,
@@ -20306,6 +22484,7 @@ lucide-react/dist/esm/defaultAttributes.js:
 lucide-react/dist/esm/Icon.js:
 lucide-react/dist/esm/createLucideIcon.js:
 lucide-react/dist/esm/icons/apple.js:
+lucide-react/dist/esm/icons/arrow-right.js:
 lucide-react/dist/esm/icons/battery.js:
 lucide-react/dist/esm/icons/captions.js:
 lucide-react/dist/esm/icons/check.js:
@@ -20329,8 +22508,11 @@ lucide-react/dist/esm/icons/file-play.js:
 lucide-react/dist/esm/icons/film.js:
 lucide-react/dist/esm/icons/globe.js:
 lucide-react/dist/esm/icons/hard-drive.js:
+lucide-react/dist/esm/icons/info.js:
 lucide-react/dist/esm/icons/layers.js:
+lucide-react/dist/esm/icons/list-ordered.js:
 lucide-react/dist/esm/icons/lock.js:
+lucide-react/dist/esm/icons/maximize-2.js:
 lucide-react/dist/esm/icons/monitor.js:
 lucide-react/dist/esm/icons/pause.js:
 lucide-react/dist/esm/icons/play.js:
@@ -20349,7 +22531,9 @@ lucide-react/dist/esm/icons/square-plus.js:
 lucide-react/dist/esm/icons/terminal.js:
 lucide-react/dist/esm/icons/trash-2.js:
 lucide-react/dist/esm/icons/upload.js:
+lucide-react/dist/esm/icons/video.js:
 lucide-react/dist/esm/icons/volume-2.js:
+lucide-react/dist/esm/icons/wand-sparkles.js:
 lucide-react/dist/esm/icons/wifi.js:
 lucide-react/dist/esm/icons/x.js:
 lucide-react/dist/esm/icons/zap.js:
