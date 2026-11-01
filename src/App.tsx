@@ -28,7 +28,7 @@ import { RemoteServerTab } from './components/tabs/RemoteServerTab';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 
 export default function App() {
-  const [platform, setPlatform] = useState<PlatformTarget>('ios');
+  const [platform, setPlatform] = useState<PlatformTarget>('web');
 
   const [presets, setPresets] = useState<HandbrakePreset[]>(() => {
     try {
