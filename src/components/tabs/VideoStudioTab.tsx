@@ -183,8 +183,8 @@ export const VideoStudioTab: React.FC<VideoStudioTabProps> = ({
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
             HandBrake Inspector
-            <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-              v1.9.0
+            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+              v2.0 Core
             </span>
           </h1>
           <p className="text-xs text-slate-400">

@@ -171,7 +171,16 @@ export interface ChapterMarker {
 export interface HandbrakePreset {
   id: string;
   name: string;
-  category: 'Enhancement Presets' | 'Apple Devices' | 'General' | 'Web' | 'Matroska' | 'Production' | 'Custom';
+  category:
+    | 'Master Archival (High Quality)'
+    | 'Web & Streaming (High Quality)'
+    | 'Enhancement Presets'
+    | 'Apple Devices'
+    | 'General'
+    | 'Web'
+    | 'Matroska'
+    | 'Production'
+    | 'Custom';
   description: string;
   container: ContainerFormat;
   dimensions: DimensionSettings;

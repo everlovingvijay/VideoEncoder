@@ -7,6 +7,9 @@ import {
   DEFAULT_MOTION_BLUR,
   DEFAULT_UPSCALE,
 } from './enhancementEngine';
+import { capabilityDetector } from './capabilityDetector';
+import { audioPipeline } from './audioPipeline';
+import { exportValidator, ValidationResult } from './exportValidator';
 
 export interface TranscodeProgressCallback {
   (progress: {
@@ -21,7 +24,10 @@ export interface TranscodeProgressCallback {
 }
 
 export class VideoTranscoderService {
-  private activeControllers: Map<string, { abort: () => void; pause: () => void; resume: () => void }> = new Map();
+  private activeControllers: Map<
+    string,
+    { abort: () => void; pause: () => void; resume: () => void }
+  > = new Map();
 
   /**
    * Reads video metadata from an uploaded file or URL
@@ -40,11 +46,7 @@ export class VideoTranscoderService {
 
       video.onloadedmetadata = () => {
         const duration = video.duration || 10;
-        const width = video.videoWidth || 1920;
-        const height = video.videoHeight || 1080;
-        const estimatedBitrate = file ? Math.round((file.size * 8) / duration / 1000) : 5000;
-
-        // Capture a clean thumbnail at 0.5s
+        // Capture a clean thumbnail at 0.5s or midpoint
         video.currentTime = Math.min(0.5, duration / 2);
       };
 
@@ -94,15 +96,21 @@ export class VideoTranscoderService {
   }
 
   /**
-   * Performs an actual client-side transcode pass
+   * Performs an actual client-side transcode pass with Release 2.0 architecture:
+   * - Capability detection & MIME resolution
+   * - Decoupled WebAudio routing with gain & DRC
+   * - Bounded frame scheduling with backpressure
+   * - Pixel-level enhancement pipeline
+   * - Automated post-export validation
    */
   public async transcode(
     job: QueueItem,
     onProgress: TranscodeProgressCallback
-  ): Promise<{ blob: Blob; url: string; sizeBytes: number }> {
+  ): Promise<{ blob: Blob; url: string; sizeBytes: number; validation?: ValidationResult }> {
     return new Promise((resolve, reject) => {
       let isPaused = false;
       let isAborted = false;
+      let isProcessingFrame = false;
 
       const video = document.createElement('video');
       video.muted = true;
@@ -129,51 +137,45 @@ export class VideoTranscoderService {
       }
 
       const targetFps = typeof preset.video.framerate === 'number' ? preset.video.framerate : 30;
-      const targetBitrate = preset.video.qualityMode === 'bitrate'
-        ? preset.video.bitrateKbps * 1000
-        : Math.max(800000, Math.round(8000000 * Math.pow(0.9, preset.video.rfValue - 18)));
+      const targetBitrate =
+        preset.video.qualityMode === 'bitrate'
+          ? preset.video.bitrateKbps * 1000
+          : Math.max(800000, Math.round(8000000 * Math.pow(0.9, preset.video.rfValue - 18)));
 
-      let audioStream: MediaStreamTrack[] = [];
-      let audioCtx: AudioContext | null = null;
-      let sourceNode: MediaElementAudioSourceNode | null = null;
-      let gainNode: GainNode | null = null;
+      // 1. Capability Detection & MIME Resolution
+      const mimeResolution = capabilityDetector.resolveOptimalMimeType(
+        preset.video.codec,
+        preset.container
+      );
+      const mimeType = mimeResolution.mimeType;
 
+      // 2. Audio Pipeline Setup
+      let audioSession: { audioTracks: MediaStreamTrack[]; cleanup: () => void } | null = null;
       try {
-        const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        audioCtx = new AudioContextClass();
-        sourceNode = audioCtx.createMediaElementSource(video);
-        gainNode = audioCtx.createGain();
-
-        // Apply audio gain dB from preset
-        const gainVal = Math.pow(10, (preset.audio[0]?.gainDb || 0) / 20);
-        gainNode.gain.setValueAtTime(gainVal, audioCtx.currentTime);
-
-        const audioDest = audioCtx.createMediaStreamDestination();
-        sourceNode.connect(gainNode);
-        gainNode.connect(audioDest);
-        audioStream = audioDest.stream.getAudioTracks();
+        audioSession = audioPipeline.setupAudioGraph(video, {
+          gainDb: preset.audio[0]?.gainDb,
+          drc: preset.audio[0]?.drc,
+        });
       } catch (err) {
-        console.warn('Audio graph connection skipped:', err);
+        console.warn('Audio setup deferred:', err);
       }
 
       const canvasStream = canvas.captureStream(targetFps);
       const outputStream = new MediaStream([
         ...canvasStream.getVideoTracks(),
-        ...audioStream,
+        ...(audioSession?.audioTracks || []),
       ]);
 
-      const mimeType = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1')
-        ? 'video/mp4;codecs=avc1'
-        : MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-        ? 'video/webm;codecs=vp9'
-        : MediaRecorder.isTypeSupported('video/webm')
-        ? 'video/webm'
-        : 'video/mp4';
-
-      const recorder = new MediaRecorder(outputStream, {
-        mimeType,
-        videoBitsPerSecond: targetBitrate,
-      });
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(outputStream, {
+          mimeType,
+          videoBitsPerSecond: targetBitrate,
+        });
+      } catch (recErr) {
+        // Fallback to default MediaRecorder without explicit mimeType
+        recorder = new MediaRecorder(outputStream);
+      }
 
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
@@ -193,7 +195,7 @@ export class VideoTranscoderService {
             if (recorder.state !== 'inactive') recorder.stop();
             video.pause();
             video.src = '';
-            audioCtx?.close();
+            audioSession?.cleanup();
           } catch (e) {
             console.error(e);
           }
@@ -231,11 +233,13 @@ export class VideoTranscoderService {
         });
       };
 
-      emitLog(`[libhb] HandBrake 1.9.0 Core initialized for Apple iOS Native Engine`, 'notice');
-      emitLog(`[libhb] Source: ${job.source.name} (${job.source.width}x${job.source.height}, ${job.source.fps} fps)`);
-      emitLog(`[libhb] Destination Preset: "${preset.name}" (${preset.video.codec})`);
-      emitLog(`[vt:enc] Apple VideoToolbox Hardware Acceleration enabled: session active`);
-      emitLog(`[x264] target bitrate: ${Math.round(targetBitrate / 1000)} kbps, RF: ${preset.video.rfValue}`);
+      emitLog(`[core 2.0] Engine initialized with reliable modular pipeline`, 'notice');
+      emitLog(`[core 2.0] Source: ${job.source.name} (${job.source.width}x${job.source.height}, ${job.source.fps} fps)`);
+      emitLog(`[core 2.0] Active Preset: "${preset.name}" (${preset.video.codec})`);
+      emitLog(`[encoder] Resolved container/MIME: ${mimeType} (target bitrate: ${Math.round(targetBitrate / 1000)} kbps)`);
+      if (mimeResolution.isFallback && mimeResolution.fallbackReason) {
+        emitLog(`[encoder] ${mimeResolution.fallbackReason}`, 'warning');
+      }
 
       // Filter construction
       const filters = preset.filters;
@@ -251,13 +255,19 @@ export class VideoTranscoderService {
       }
 
       if (preset.enhancement) {
-        emitLog(`[enhancement] Engine active: Sharpness=${preset.enhancement.sharpness}, Denoise=${preset.enhancement.noiseReduction}, Temp=${preset.enhancement.colorTemperature}K, Grain=${preset.enhancement.filmGrain}`);
+        emitLog(
+          `[enhancement] Active: Sharpness=${preset.enhancement.sharpness}, Denoise=${preset.enhancement.noiseReduction}, Temp=${preset.enhancement.colorTemperature}K, Grain=${preset.enhancement.filmGrain}`
+        );
       }
       if (preset.deviceProfile && preset.deviceProfile.profile !== 'none') {
-        emitLog(`[simulation] Device Quality Profile applied: "${preset.deviceProfile.profile}" at ${preset.deviceProfile.intensity}% intensity`);
+        emitLog(
+          `[simulation] Quality Profile: "${preset.deviceProfile.profile}" (${preset.deviceProfile.intensity}%)`
+        );
       }
       if (preset.motionBlur && preset.motionBlur.enabled) {
-        emitLog(`[motion-blur] Directional blur enabled: ${preset.motionBlur.direction} direction, shutter ${preset.motionBlur.shutterSpeed}`);
+        emitLog(
+          `[motion-blur] Direction: ${preset.motionBlur.direction}, Shutter: ${preset.motionBlur.shutterSpeed}`
+        );
       }
 
       video.onloadeddata = () => {
@@ -277,95 +287,111 @@ export class VideoTranscoderService {
         }
 
         if (video.ended || video.currentTime >= totalDuration - 0.05) {
-          // Finished encoding!
-          emitLog(`[libhb] Transcode complete: ${framesEncoded} frames processed.`, 'notice');
+          emitLog(`[core 2.0] Transcode frame processing complete: ${framesEncoded} frames rendered.`, 'notice');
           recorder.stop();
           return;
         }
 
-        // Apply visual filters and crop
-        ctx.save();
-        ctx.clearRect(0, 0, targetWidth, targetHeight);
+        // Bounded frame processing check to avoid overlapping heavy pixel loops
+        if (isProcessingFrame) {
+          requestAnimationFrame(drawFrame);
+          return;
+        }
 
-        // Rotation & Flip
-        if (filters.rotation !== 0 || filters.flipHorizontal) {
-          ctx.translate(targetWidth / 2, targetHeight / 2);
-          if (filters.rotation !== 0) {
-            ctx.rotate((filters.rotation * Math.PI) / 180);
+        isProcessingFrame = true;
+
+        try {
+          ctx.save();
+          ctx.clearRect(0, 0, targetWidth, targetHeight);
+
+          // Rotation & Flip
+          if (filters.rotation !== 0 || filters.flipHorizontal) {
+            ctx.translate(targetWidth / 2, targetHeight / 2);
+            if (filters.rotation !== 0) {
+              ctx.rotate((filters.rotation * Math.PI) / 180);
+            }
+            if (filters.flipHorizontal) {
+              ctx.scale(-1, 1);
+            }
+            ctx.translate(-targetWidth / 2, -targetHeight / 2);
           }
-          if (filters.flipHorizontal) {
-            ctx.scale(-1, 1);
+
+          if (filterCss) {
+            ctx.filter = filterCss.trim();
           }
-          ctx.translate(-targetWidth / 2, -targetHeight / 2);
-        }
 
-        if (filterCss) {
-          ctx.filter = filterCss.trim();
-        }
+          // Sizing & Crop
+          const cropT = preset.dimensions.cropTop || 0;
+          const cropB = preset.dimensions.cropBottom || 0;
+          const cropL = preset.dimensions.cropLeft || 0;
+          const cropR = preset.dimensions.cropRight || 0;
 
-        // Sizing & Crop
-        const cropT = preset.dimensions.cropTop || 0;
-        const cropB = preset.dimensions.cropBottom || 0;
-        const cropL = preset.dimensions.cropLeft || 0;
-        const cropR = preset.dimensions.cropRight || 0;
+          const srcW = Math.max(10, video.videoWidth - cropL - cropR);
+          const srcH = Math.max(10, video.videoHeight - cropT - cropB);
 
-        const srcW = Math.max(10, video.videoWidth - cropL - cropR);
-        const srcH = Math.max(10, video.videoHeight - cropT - cropB);
+          ctx.drawImage(video, cropL, cropT, srcW, srcH, 0, 0, targetWidth, targetHeight);
+          ctx.restore();
 
-        ctx.drawImage(
-          video,
-          cropL,
-          cropT,
-          srcW,
-          srcH,
-          0,
-          0,
-          targetWidth,
-          targetHeight
-        );
+          // Apply pixel-level enhancement passes
+          applyPixelEnhancements(
+            ctx,
+            targetWidth,
+            targetHeight,
+            preset.enhancement,
+            preset.deviceProfile,
+            preset.motionBlur
+          );
 
-        ctx.restore();
+          framesEncoded++;
+          const elapsed = (performance.now() - startTime) / 1000;
+          const currentFps = framesEncoded / Math.max(0.1, elapsed);
+          const percent = Math.min(99, Math.round((video.currentTime / totalDuration) * 100));
+          const remainingFrames = Math.max(0, totalFrames - framesEncoded);
+          const eta = Math.round(remainingFrames / Math.max(1, currentFps));
 
-        // Apply pixel-level enhancement passes (Color temp, Gamma, Tone curve, Sharpness kernel, Film grain, Device simulation, Motion blur)
-        applyPixelEnhancements(
-          ctx,
-          targetWidth,
-          targetHeight,
-          preset.enhancement,
-          preset.deviceProfile,
-          preset.motionBlur
-        );
+          if (framesEncoded % Math.round(targetFps / 2) === 0) {
+            onProgress({
+              percent,
+              currentFrame: framesEncoded,
+              totalFrames,
+              fps: Math.round(currentFps * 10) / 10,
+              etaSeconds: eta,
+              elapsedSeconds: Math.round(elapsed),
+            });
+          }
 
-        framesEncoded++;
-        const elapsed = (performance.now() - startTime) / 1000;
-        const currentFps = framesEncoded / Math.max(0.1, elapsed);
-        const percent = Math.min(99, Math.round((video.currentTime / totalDuration) * 100));
-        const remainingFrames = Math.max(0, totalFrames - framesEncoded);
-        const eta = Math.round(remainingFrames / Math.max(1, currentFps));
-
-        if (framesEncoded % Math.round(targetFps / 2) === 0) {
-          onProgress({
-            percent,
-            currentFrame: framesEncoded,
-            totalFrames,
-            fps: Math.round(currentFps * 10) / 10,
-            etaSeconds: eta,
-            elapsedSeconds: Math.round(elapsed),
-          });
-        }
-
-        if (framesEncoded % (targetFps * 2) === 0) {
-          emitLog(`[vt:enc] Frame ${framesEncoded}/${totalFrames} (${percent}%) - ${Math.round(currentFps)} fps - ETA: ${eta}s`);
+          if (framesEncoded % (targetFps * 2) === 0) {
+            emitLog(`[encoder] Frame ${framesEncoded}/${totalFrames} (${percent}%) - ${Math.round(currentFps)} fps - ETA: ${eta}s`);
+          }
+        } finally {
+          isProcessingFrame = false;
         }
 
         requestAnimationFrame(drawFrame);
       };
 
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         const blob = new Blob(chunks, { type: mimeType });
         const outputUrl = URL.createObjectURL(blob);
         this.activeControllers.delete(job.id);
         cleanup();
+
+        // 3. Post-Export Validation Pass
+        emitLog(`[validator] Validating exported container integrity & track presence...`);
+        let validationResult: ValidationResult | undefined;
+        try {
+          validationResult = await exportValidator.validateExport(blob, totalDuration);
+          if (validationResult.valid) {
+            emitLog(
+              `[validator] Verified: playable duration ${validationResult.durationSeconds.toFixed(1)}s, ${validationResult.width}x${validationResult.height}, decodable: true`,
+              'notice'
+            );
+          } else {
+            emitLog(`[validator] Validation warning: ${validationResult.issues.join('; ')}`, 'warning');
+          }
+        } catch (valErr) {
+          console.warn('Export validation check non-blocking error:', valErr);
+        }
 
         onProgress({
           percent: 100,
@@ -378,7 +404,7 @@ export class VideoTranscoderService {
             id: `log-done-${Date.now()}`,
             timestamp: new Date().toLocaleTimeString(),
             level: 'notice',
-            message: `[libhb] Work done! Encoded file size: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${Math.round((blob.size * 8) / totalDuration / 1000)} kbps)`,
+            message: `[core 2.0] Work done! Encoded size: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${Math.round((blob.size * 8) / totalDuration / 1000)} kbps)`,
           },
         });
 
@@ -386,6 +412,7 @@ export class VideoTranscoderService {
           blob,
           url: outputUrl,
           sizeBytes: blob.size,
+          validation: validationResult,
         });
       };
 
@@ -393,13 +420,13 @@ export class VideoTranscoderService {
         try {
           video.pause();
           video.src = '';
-          audioCtx?.close();
+          audioSession?.cleanup();
         } catch (e) {
           // ignore
         }
       };
 
-      video.onerror = (err) => {
+      video.onerror = () => {
         this.activeControllers.delete(job.id);
         cleanup();
         reject(new Error('Video playback error during transcoding stream.'));

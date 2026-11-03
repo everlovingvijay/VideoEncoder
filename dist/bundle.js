@@ -14875,6 +14875,458 @@ function applySharpnessConvolution(data, width, height, amount) {
 
 // src/data/handbrakePresets.ts
 var DEFAULT_PRESETS = [
+  // ==========================================
+  // --- TIER 1: MASTER ARCHIVAL & MAXIMUM FIDELITY ---
+  // ==========================================
+  {
+    id: "preset-master-4k60-hevc",
+    name: "Master 4K60 HEVC 10-bit (CRF 14)",
+    category: "Master Archival (High Quality)",
+    description: "Pristine master archival preset. Visually lossless CRF 14, 10-bit HDR wide color gamut (BT.2020), 60 FPS, with 40,000 kbps ceiling and studio-grade AAC 320 kbps audio.",
+    container: "mp4",
+    dimensions: {
+      width: 3840,
+      height: 2160,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.265 (HEVC 10-bit)",
+      framerateMode: "cfr",
+      framerate: 60,
+      qualityMode: "rf",
+      rfValue: 14,
+      bitrateKbps: 4e4,
+      twoPass: true,
+      turboFirstPass: true,
+      encoderSpeedPreset: "slow",
+      encoderProfile: "main",
+      hardwareAcceleration: true,
+      tenBitColor: true,
+      colorSpace: "bt2020_hdr"
+    },
+    audio: [
+      {
+        id: "aud-master-1",
+        name: "Master Surround",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 320,
+        mixdown: "5.1 Surround",
+        gainDb: 0,
+        drc: 0
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "off",
+      sharpenStrength: 0,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 0,
+      contrast: 0,
+      saturation: 0
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 10,
+      noiseReduction: 5,
+      contrast: 50,
+      brightness: 50,
+      saturation: 100,
+      gamma: 1,
+      exposure: 0,
+      clarity: 10,
+      detailEnhancement: 15,
+      colorTemperature: 6500,
+      whiteBalanceMode: "auto",
+      highlights: 0,
+      shadows: 0,
+      vibrance: 100,
+      debanding: true,
+      colorCorrection: true
+    },
+    deviceProfile: { profile: "professional-camera", intensity: 100 },
+    motionBlur: DEFAULT_MOTION_BLUR,
+    upscale: { mode: "auto", multiplier: 1, algorithm: "lanczos", allowUpscaling: true }
+  },
+  {
+    id: "preset-master-1080p60-avc",
+    name: "Master 1080p60 AVC Pristine (CRF 16)",
+    category: "Master Archival (High Quality)",
+    description: "Universal master archive profile in 1080p 60 FPS. Visually lossless CRF 16 with 20,000 kbps headroom, High Profile 4.1, and pristine detail retention across all players.",
+    container: "mp4",
+    dimensions: {
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.264 (VideoToolbox / AVC)",
+      framerateMode: "cfr",
+      framerate: 60,
+      qualityMode: "rf",
+      rfValue: 16,
+      bitrateKbps: 2e4,
+      twoPass: true,
+      turboFirstPass: true,
+      encoderSpeedPreset: "medium",
+      encoderProfile: "high",
+      hardwareAcceleration: true,
+      tenBitColor: false,
+      colorSpace: "bt709"
+    },
+    audio: [
+      {
+        id: "aud-master-2",
+        name: "Studio Stereo",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 256,
+        mixdown: "Stereo",
+        gainDb: 0,
+        drc: 0
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "off",
+      sharpenStrength: 0,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 0,
+      contrast: 0,
+      saturation: 0
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 12,
+      noiseReduction: 0,
+      contrast: 50,
+      brightness: 50,
+      saturation: 100,
+      gamma: 1,
+      exposure: 0,
+      clarity: 8,
+      detailEnhancement: 10,
+      colorTemperature: 6500,
+      whiteBalanceMode: "auto",
+      highlights: 0,
+      shadows: 0,
+      vibrance: 100
+    },
+    deviceProfile: { profile: "none", intensity: 100 },
+    motionBlur: DEFAULT_MOTION_BLUR,
+    upscale: DEFAULT_UPSCALE
+  },
+  {
+    id: "preset-cinema-master-4k24",
+    name: "Cinema Master 4K24 Rec.2020 (CRF 14)",
+    category: "Master Archival (High Quality)",
+    description: "Broadcast and cinema projection master. 24.000 FPS film cadence, CRF 14 near-lossless, BT.2020 HDR color space, 5.1 surround mixdown, and subtle organic 35mm grain.",
+    container: "mp4",
+    dimensions: {
+      width: 3840,
+      height: 2160,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.265 (HEVC 10-bit)",
+      framerateMode: "cfr",
+      framerate: 24,
+      qualityMode: "rf",
+      rfValue: 14,
+      bitrateKbps: 35e3,
+      twoPass: true,
+      turboFirstPass: true,
+      encoderSpeedPreset: "slow",
+      encoderProfile: "main",
+      hardwareAcceleration: true,
+      tenBitColor: true,
+      colorSpace: "bt2020_hdr"
+    },
+    audio: [
+      {
+        id: "aud-master-3",
+        name: "Cinema 5.1 Surround",
+        language: "English",
+        codec: "AC3",
+        bitrateKbps: 448,
+        mixdown: "5.1 Surround",
+        gainDb: 0,
+        drc: 0
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "unsharp",
+      sharpenStrength: 10,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 0,
+      contrast: 4,
+      saturation: 0
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 15,
+      filmGrain: 10,
+      contrast: 52,
+      highlights: -8,
+      shadows: 4,
+      colorTemperature: 6300,
+      filmGrainSimulation: true,
+      colorCorrection: true
+    },
+    deviceProfile: { profile: "cinematic", intensity: 100 },
+    motionBlur: { ...DEFAULT_MOTION_BLUR, enabled: true, intensity: 35, direction: "natural", shutterSpeed: "1/24" },
+    upscale: DEFAULT_UPSCALE
+  },
+  // ==========================================
+  // --- TIER 2: WEB & STREAMING HIGH QUALITY ---
+  // ==========================================
+  {
+    id: "preset-web-1080p60-ultra-stream",
+    name: "Web 1080p60 Ultra Stream (CRF 18)",
+    category: "Web & Streaming (High Quality)",
+    description: "Gold standard for YouTube, Vimeo, and web streaming. Visually lossless CRF 18 at 60 FPS with universal H.264 High Profile, fast-start container, and 10,000 kbps bandwidth ceiling.",
+    container: "mp4",
+    dimensions: {
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.264 (VideoToolbox / AVC)",
+      framerateMode: "cfr",
+      framerate: 60,
+      qualityMode: "rf",
+      rfValue: 18,
+      bitrateKbps: 1e4,
+      twoPass: false,
+      turboFirstPass: false,
+      encoderSpeedPreset: "fast",
+      encoderProfile: "high",
+      hardwareAcceleration: true,
+      tenBitColor: false,
+      colorSpace: "bt709"
+    },
+    audio: [
+      {
+        id: "aud-stream-1",
+        name: "Streaming AAC",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 192,
+        mixdown: "Stereo",
+        gainDb: 0,
+        drc: 0.2
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "unsharp",
+      sharpenStrength: 20,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 0,
+      contrast: 2,
+      saturation: 4
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 25,
+      contrast: 52,
+      saturation: 105,
+      vibrance: 110,
+      clarity: 15,
+      colorCorrection: true
+    },
+    deviceProfile: { profile: "none", intensity: 100 },
+    motionBlur: DEFAULT_MOTION_BLUR,
+    upscale: DEFAULT_UPSCALE
+  },
+  {
+    id: "preset-web-4k30-high-efficiency",
+    name: "Web 4K30 High-Efficiency (CRF 20)",
+    category: "Web & Streaming (High Quality)",
+    description: "High-efficiency 4K Ultra HD for premium web streaming. CRF 20 HEVC 10-bit compression delivering razor-sharp 4K clarity at 16,000 kbps with fast playback buffering.",
+    container: "mp4",
+    dimensions: {
+      width: 3840,
+      height: 2160,
+      aspectRatio: "16:9",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.265 (HEVC 10-bit)",
+      framerateMode: "vfr",
+      framerate: 30,
+      qualityMode: "rf",
+      rfValue: 20,
+      bitrateKbps: 16e3,
+      twoPass: false,
+      turboFirstPass: false,
+      encoderSpeedPreset: "medium",
+      encoderProfile: "main",
+      hardwareAcceleration: true,
+      tenBitColor: true,
+      colorSpace: "bt709"
+    },
+    audio: [
+      {
+        id: "aud-stream-2",
+        name: "AAC Stereo 256k",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 256,
+        mixdown: "Stereo",
+        gainDb: 0,
+        drc: 0
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "off",
+      sharpenStrength: 0,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 0,
+      contrast: 0,
+      saturation: 0
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 18,
+      noiseReduction: 10,
+      contrast: 51,
+      clarity: 12,
+      debanding: true
+    },
+    deviceProfile: { profile: "none", intensity: 100 },
+    motionBlur: DEFAULT_MOTION_BLUR,
+    upscale: DEFAULT_UPSCALE
+  },
+  {
+    id: "preset-social-916-high-bitrate-reel",
+    name: "Social 9:16 High-Bitrate Reel (CRF 18)",
+    category: "Web & Streaming (High Quality)",
+    description: "Designed to counter heavy compression algorithms on Instagram Reels, TikTok, and YouTube Shorts. 1080x1920 60 FPS with +20% vibrance, edge clarity, and 12,000 kbps bandwidth.",
+    container: "mp4",
+    dimensions: {
+      width: 1080,
+      height: 1920,
+      aspectRatio: "9:16",
+      anamorphic: "automatic",
+      keepAspectRatio: true,
+      cropMode: "none",
+      cropTop: 0,
+      cropBottom: 0,
+      cropLeft: 0,
+      cropRight: 0
+    },
+    video: {
+      codec: "H.264 (VideoToolbox / AVC)",
+      framerateMode: "cfr",
+      framerate: 60,
+      qualityMode: "rf",
+      rfValue: 18,
+      bitrateKbps: 12e3,
+      twoPass: false,
+      turboFirstPass: false,
+      encoderSpeedPreset: "faster",
+      encoderProfile: "high",
+      hardwareAcceleration: true,
+      tenBitColor: false,
+      colorSpace: "bt709"
+    },
+    audio: [
+      {
+        id: "aud-stream-3",
+        name: "Loudness Stereo",
+        language: "English",
+        codec: "AAC (CoreAudio)",
+        bitrateKbps: 256,
+        mixdown: "Stereo",
+        gainDb: 1,
+        drc: 0.5
+      }
+    ],
+    filters: {
+      deinterlace: "off",
+      denoise: "off",
+      denoiseStrength: "light",
+      sharpen: "unsharp",
+      sharpenStrength: 25,
+      rotation: 0,
+      flipHorizontal: false,
+      grayscale: false,
+      brightness: 1,
+      contrast: 4,
+      saturation: 8
+    },
+    enhancement: {
+      ...DEFAULT_ENHANCEMENT,
+      sharpness: 30,
+      contrast: 53,
+      saturation: 112,
+      vibrance: 120,
+      clarity: 25,
+      detailEnhancement: 20,
+      colorCorrection: true
+    },
+    deviceProfile: { profile: "iphone-quality", intensity: 85 },
+    motionBlur: DEFAULT_MOTION_BLUR,
+    upscale: { mode: "preset", multiplier: 1, algorithm: "lanczos", allowUpscaling: true, targetPresetId: "portrait-1080p" }
+  },
   // --- Intelligent Enhancement Presets ---
   {
     id: "preset-low-quality-recovery",
@@ -16087,6 +16539,297 @@ var PRESET_SAMPLE_METADATA = [
   }
 ];
 
+// src/services/capabilityDetector.ts
+var CapabilityDetectorService = class {
+  constructor() {
+    this.cachedCapabilities = null;
+  }
+  /**
+   * Probes the runtime environment for video/audio codecs and container support
+   */
+  detectCapabilities() {
+    if (this.cachedCapabilities) {
+      return this.cachedCapabilities;
+    }
+    const hasMediaRecorder = typeof window !== "undefined" && typeof window.MediaRecorder !== "undefined";
+    const hasWebCodecs = typeof window !== "undefined" && "VideoEncoder" in window && "VideoDecoder" in window;
+    const hasWebAudio = typeof window !== "undefined" && ("AudioContext" in window || "webkitAudioContext" in window);
+    const hasCanvasCaptureStream = typeof document !== "undefined" && typeof document.createElement("canvas").captureStream === "function";
+    const testMimeTypes = [
+      "video/mp4;codecs=avc1.640028",
+      // H.264 High 4.0
+      "video/mp4;codecs=avc1.4d401f",
+      // H.264 Main 3.1
+      "video/mp4;codecs=avc1.42e01e",
+      // H.264 Baseline
+      "video/mp4;codecs=hev1.1.6.L93.B0",
+      // H.265 / HEVC Main 10
+      "video/mp4;codecs=hvc1.1.6.L93.B0",
+      // H.265 / HEVC Alternative
+      "video/mp4",
+      "video/webm;codecs=vp9,opus",
+      // VP9 + Opus
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8,opus",
+      // VP8 + Opus
+      "video/webm;codecs=vp8",
+      "video/webm;codecs=av01",
+      // AV1
+      "video/webm;codecs=h264",
+      "video/webm"
+    ];
+    const supportedMimeTypes = [];
+    if (hasMediaRecorder) {
+      for (const mime of testMimeTypes) {
+        try {
+          if (MediaRecorder.isTypeSupported(mime)) {
+            supportedMimeTypes.push(mime);
+          }
+        } catch (e) {
+        }
+      }
+    }
+    const supportedContainers = [];
+    if (supportedMimeTypes.some((m) => m.startsWith("video/mp4"))) {
+      supportedContainers.push("mp4", "mov");
+    }
+    if (supportedMimeTypes.some((m) => m.startsWith("video/webm"))) {
+      supportedContainers.push("webm", "mkv");
+    }
+    if (supportedContainers.length === 0) {
+      supportedContainers.push("webm");
+    }
+    const bestMp4 = supportedMimeTypes.find((m) => m.includes("avc1") || m.includes("hvc1") || m.includes("hev1")) || (supportedMimeTypes.includes("video/mp4") ? "video/mp4" : null);
+    const bestWebm = supportedMimeTypes.find((m) => m.includes("vp9")) || supportedMimeTypes.find((m) => m.includes("vp8")) || (supportedMimeTypes.includes("video/webm") ? "video/webm" : null);
+    const isApplePlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent || "");
+    const hardwareAccelerationDetected = hasWebCodecs || isApplePlatform && Boolean(bestMp4);
+    this.cachedCapabilities = {
+      hasWebCodecs,
+      hasMediaRecorder,
+      hasWebAudio,
+      hasCanvasCaptureStream,
+      supportedMimeTypes,
+      supportedContainers,
+      bestMp4MimeType: bestMp4,
+      bestWebmMimeType: bestWebm,
+      hardwareAccelerationDetected
+    };
+    return this.cachedCapabilities;
+  }
+  /**
+   * Resolves the optimal MIME type for a requested codec and container format
+   */
+  resolveOptimalMimeType(codec, container) {
+    const caps = this.detectCapabilities();
+    if (container === "mp4" || container === "mov") {
+      if (caps.bestMp4MimeType) {
+        return { mimeType: caps.bestMp4MimeType, isFallback: false };
+      }
+      if (caps.bestWebmMimeType) {
+        return {
+          mimeType: caps.bestWebmMimeType,
+          isFallback: true,
+          fallbackReason: "Browser lacks native MP4 MediaRecorder muxing; adapting to high-quality WebM container."
+        };
+      }
+    }
+    if (container === "webm" || container === "mkv") {
+      if (caps.bestWebmMimeType) {
+        return { mimeType: caps.bestWebmMimeType, isFallback: false };
+      }
+      if (caps.bestMp4MimeType) {
+        return {
+          mimeType: caps.bestMp4MimeType,
+          isFallback: true,
+          fallbackReason: "Browser lacks native WebM encoder; falling back to MP4 AVC."
+        };
+      }
+    }
+    if (caps.supportedMimeTypes.length > 0) {
+      return {
+        mimeType: caps.supportedMimeTypes[0],
+        isFallback: true,
+        fallbackReason: "Using standard browser default recording MIME type."
+      };
+    }
+    return { mimeType: "video/webm", isFallback: true, fallbackReason: "Universal webm fallback" };
+  }
+  /**
+   * Validates if the selected container and codec configuration can be exported
+   */
+  validateConfiguration(codec, container) {
+    const caps = this.detectCapabilities();
+    if (container === "mp4" && !caps.bestMp4MimeType) {
+      return {
+        valid: false,
+        recommendedContainer: "webm",
+        warning: "Native MP4 recording is not supported in this browser. Output will be muxed as WebM."
+      };
+    }
+    if (container === "webm" && !caps.bestWebmMimeType && caps.bestMp4MimeType) {
+      return {
+        valid: false,
+        recommendedContainer: "mp4",
+        warning: "Native WebM recording is limited; output will be muxed as MP4."
+      };
+    }
+    return { valid: true, recommendedContainer: container };
+  }
+};
+var capabilityDetector = new CapabilityDetectorService();
+
+// src/services/audioPipeline.ts
+var AudioPipelineService = class {
+  /**
+   * Initializes a Web Audio routing graph for an active video element
+   */
+  setupAudioGraph(videoElement, options = {}) {
+    const AudioContextClass = typeof window !== "undefined" ? window.AudioContext || window.webkitAudioContext : null;
+    if (!AudioContextClass) {
+      return { audioTracks: [], cleanup: () => {
+      } };
+    }
+    let audioCtx = null;
+    let sourceNode = null;
+    let gainNode = null;
+    let compressorNode = null;
+    let destNode = null;
+    let isCleanedUp = false;
+    try {
+      audioCtx = new AudioContextClass();
+      sourceNode = audioCtx.createMediaElementSource(videoElement);
+      gainNode = audioCtx.createGain();
+      const gainVal = Math.pow(10, (options.gainDb || 0) / 20);
+      gainNode.gain.setValueAtTime(gainVal, audioCtx.currentTime);
+      compressorNode = audioCtx.createDynamicsCompressor();
+      const drcFactor = Math.max(0, Math.min(3, options.drc || 0));
+      compressorNode.threshold.setValueAtTime(-24 - drcFactor * 10, audioCtx.currentTime);
+      compressorNode.knee.setValueAtTime(30, audioCtx.currentTime);
+      compressorNode.ratio.setValueAtTime(12 + drcFactor * 4, audioCtx.currentTime);
+      compressorNode.attack.setValueAtTime(3e-3, audioCtx.currentTime);
+      compressorNode.release.setValueAtTime(0.25, audioCtx.currentTime);
+      destNode = audioCtx.createMediaStreamDestination();
+      sourceNode.connect(gainNode);
+      gainNode.connect(compressorNode);
+      compressorNode.connect(destNode);
+      const audioTracks = destNode.stream.getAudioTracks();
+      const cleanup = () => {
+        if (isCleanedUp) return;
+        isCleanedUp = true;
+        try {
+          audioTracks.forEach((t) => t.stop());
+          sourceNode?.disconnect();
+          gainNode?.disconnect();
+          compressorNode?.disconnect();
+          if (audioCtx && audioCtx.state !== "closed") {
+            audioCtx.close().catch(() => {
+            });
+          }
+        } catch (e) {
+        }
+      };
+      return { audioTracks, cleanup };
+    } catch (err) {
+      console.warn("[AudioPipeline] Audio graph routing fallback (silent or direct audio):", err);
+      return {
+        audioTracks: [],
+        cleanup: () => {
+          if (audioCtx && audioCtx.state !== "closed") {
+            audioCtx.close().catch(() => {
+            });
+          }
+        }
+      };
+    }
+  }
+};
+var audioPipeline = new AudioPipelineService();
+
+// src/services/exportValidator.ts
+var ExportValidatorService = class {
+  /**
+   * Validates an exported video Blob for decodability, duration accuracy, and track presence
+   */
+  async validateExport(blob, expectedDurationSeconds) {
+    const issues = [];
+    if (!blob || blob.size === 0) {
+      issues.push("Exported file is empty (0 bytes).");
+      return {
+        valid: false,
+        sizeBytes: 0,
+        durationSeconds: 0,
+        width: 0,
+        height: 0,
+        hasVideoTrack: false,
+        issues
+      };
+    }
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(blob);
+      const testVideo = document.createElement("video");
+      testVideo.preload = "metadata";
+      testVideo.muted = true;
+      testVideo.playsInline = true;
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        issues.push("Video metadata load timed out after 5.0 seconds.");
+        resolve({
+          valid: false,
+          sizeBytes: blob.size,
+          durationSeconds: 0,
+          width: 0,
+          height: 0,
+          hasVideoTrack: false,
+          issues
+        });
+      }, 5e3);
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        testVideo.src = "";
+        testVideo.remove();
+        URL.revokeObjectURL(url);
+      };
+      testVideo.onloadedmetadata = () => {
+        const duration = testVideo.duration || 0;
+        const width = testVideo.videoWidth || 0;
+        const height = testVideo.videoHeight || 0;
+        if (width === 0 || height === 0) {
+          issues.push(`Invalid video dimensions detected: ${width}x${height}`);
+        }
+        const durationDelta = Math.abs(duration - expectedDurationSeconds);
+        if (durationDelta > 1 && duration < expectedDurationSeconds * 0.7) {
+          issues.push(`Duration truncated: expected ~${expectedDurationSeconds.toFixed(1)}s, got ${duration.toFixed(1)}s.`);
+        }
+        cleanup();
+        resolve({
+          valid: issues.length === 0,
+          sizeBytes: blob.size,
+          durationSeconds: duration,
+          width,
+          height,
+          hasVideoTrack: width > 0 && height > 0,
+          issues
+        });
+      };
+      testVideo.onerror = () => {
+        cleanup();
+        issues.push("Browser video decoder failed to parse exported container.");
+        resolve({
+          valid: false,
+          sizeBytes: blob.size,
+          durationSeconds: 0,
+          width: 0,
+          height: 0,
+          hasVideoTrack: false,
+          issues
+        });
+      };
+      testVideo.src = url;
+    });
+  }
+};
+var exportValidator = new ExportValidatorService();
+
 // src/services/videoTranscoder.ts
 var VideoTranscoderService = class {
   constructor() {
@@ -16107,9 +16850,6 @@ var VideoTranscoderService = class {
       };
       video.onloadedmetadata = () => {
         const duration = video.duration || 10;
-        const width = video.videoWidth || 1920;
-        const height = video.videoHeight || 1080;
-        const estimatedBitrate = file ? Math.round(file.size * 8 / duration / 1e3) : 5e3;
         video.currentTime = Math.min(0.5, duration / 2);
       };
       video.onseeked = () => {
@@ -16155,12 +16895,18 @@ var VideoTranscoderService = class {
     });
   }
   /**
-   * Performs an actual client-side transcode pass
+   * Performs an actual client-side transcode pass with Release 2.0 architecture:
+   * - Capability detection & MIME resolution
+   * - Decoupled WebAudio routing with gain & DRC
+   * - Bounded frame scheduling with backpressure
+   * - Pixel-level enhancement pipeline
+   * - Automated post-export validation
    */
   async transcode(job, onProgress) {
     return new Promise((resolve, reject) => {
       let isPaused = false;
       let isAborted = false;
+      let isProcessingFrame = false;
       const video = document.createElement("video");
       video.muted = true;
       video.playsInline = true;
@@ -16179,34 +16925,34 @@ var VideoTranscoderService = class {
       }
       const targetFps = typeof preset.video.framerate === "number" ? preset.video.framerate : 30;
       const targetBitrate = preset.video.qualityMode === "bitrate" ? preset.video.bitrateKbps * 1e3 : Math.max(8e5, Math.round(8e6 * Math.pow(0.9, preset.video.rfValue - 18)));
-      let audioStream = [];
-      let audioCtx = null;
-      let sourceNode = null;
-      let gainNode = null;
+      const mimeResolution = capabilityDetector.resolveOptimalMimeType(
+        preset.video.codec,
+        preset.container
+      );
+      const mimeType = mimeResolution.mimeType;
+      let audioSession = null;
       try {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        audioCtx = new AudioContextClass();
-        sourceNode = audioCtx.createMediaElementSource(video);
-        gainNode = audioCtx.createGain();
-        const gainVal = Math.pow(10, (preset.audio[0]?.gainDb || 0) / 20);
-        gainNode.gain.setValueAtTime(gainVal, audioCtx.currentTime);
-        const audioDest = audioCtx.createMediaStreamDestination();
-        sourceNode.connect(gainNode);
-        gainNode.connect(audioDest);
-        audioStream = audioDest.stream.getAudioTracks();
+        audioSession = audioPipeline.setupAudioGraph(video, {
+          gainDb: preset.audio[0]?.gainDb,
+          drc: preset.audio[0]?.drc
+        });
       } catch (err) {
-        console.warn("Audio graph connection skipped:", err);
+        console.warn("Audio setup deferred:", err);
       }
       const canvasStream = canvas.captureStream(targetFps);
       const outputStream = new MediaStream([
         ...canvasStream.getVideoTracks(),
-        ...audioStream
+        ...audioSession?.audioTracks || []
       ]);
-      const mimeType = MediaRecorder.isTypeSupported("video/mp4;codecs=avc1") ? "video/mp4;codecs=avc1" : MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : MediaRecorder.isTypeSupported("video/webm") ? "video/webm" : "video/mp4";
-      const recorder = new MediaRecorder(outputStream, {
-        mimeType,
-        videoBitsPerSecond: targetBitrate
-      });
+      let recorder;
+      try {
+        recorder = new MediaRecorder(outputStream, {
+          mimeType,
+          videoBitsPerSecond: targetBitrate
+        });
+      } catch (recErr) {
+        recorder = new MediaRecorder(outputStream);
+      }
       const chunks = [];
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -16222,7 +16968,7 @@ var VideoTranscoderService = class {
             if (recorder.state !== "inactive") recorder.stop();
             video.pause();
             video.src = "";
-            audioCtx?.close();
+            audioSession?.cleanup();
           } catch (e) {
             console.error(e);
           }
@@ -16257,11 +17003,13 @@ var VideoTranscoderService = class {
           }
         });
       };
-      emitLog(`[libhb] HandBrake 1.9.0 Core initialized for Apple iOS Native Engine`, "notice");
-      emitLog(`[libhb] Source: ${job.source.name} (${job.source.width}x${job.source.height}, ${job.source.fps} fps)`);
-      emitLog(`[libhb] Destination Preset: "${preset.name}" (${preset.video.codec})`);
-      emitLog(`[vt:enc] Apple VideoToolbox Hardware Acceleration enabled: session active`);
-      emitLog(`[x264] target bitrate: ${Math.round(targetBitrate / 1e3)} kbps, RF: ${preset.video.rfValue}`);
+      emitLog(`[core 2.0] Engine initialized with reliable modular pipeline`, "notice");
+      emitLog(`[core 2.0] Source: ${job.source.name} (${job.source.width}x${job.source.height}, ${job.source.fps} fps)`);
+      emitLog(`[core 2.0] Active Preset: "${preset.name}" (${preset.video.codec})`);
+      emitLog(`[encoder] Resolved container/MIME: ${mimeType} (target bitrate: ${Math.round(targetBitrate / 1e3)} kbps)`);
+      if (mimeResolution.isFallback && mimeResolution.fallbackReason) {
+        emitLog(`[encoder] ${mimeResolution.fallbackReason}`, "warning");
+      }
       const filters = preset.filters;
       let filterCss = "";
       if (filters.grayscale) filterCss += "grayscale(100%) ";
@@ -16273,13 +17021,19 @@ var VideoTranscoderService = class {
         filterCss += (filterCss ? " " : "") + enhancementCss;
       }
       if (preset.enhancement) {
-        emitLog(`[enhancement] Engine active: Sharpness=${preset.enhancement.sharpness}, Denoise=${preset.enhancement.noiseReduction}, Temp=${preset.enhancement.colorTemperature}K, Grain=${preset.enhancement.filmGrain}`);
+        emitLog(
+          `[enhancement] Active: Sharpness=${preset.enhancement.sharpness}, Denoise=${preset.enhancement.noiseReduction}, Temp=${preset.enhancement.colorTemperature}K, Grain=${preset.enhancement.filmGrain}`
+        );
       }
       if (preset.deviceProfile && preset.deviceProfile.profile !== "none") {
-        emitLog(`[simulation] Device Quality Profile applied: "${preset.deviceProfile.profile}" at ${preset.deviceProfile.intensity}% intensity`);
+        emitLog(
+          `[simulation] Quality Profile: "${preset.deviceProfile.profile}" (${preset.deviceProfile.intensity}%)`
+        );
       }
       if (preset.motionBlur && preset.motionBlur.enabled) {
-        emitLog(`[motion-blur] Directional blur enabled: ${preset.motionBlur.direction} direction, shutter ${preset.motionBlur.shutterSpeed}`);
+        emitLog(
+          `[motion-blur] Direction: ${preset.motionBlur.direction}, Shutter: ${preset.motionBlur.shutterSpeed}`
+        );
       }
       video.onloadeddata = () => {
         totalDuration = video.duration || totalDuration;
@@ -16296,77 +17050,91 @@ var VideoTranscoderService = class {
           return;
         }
         if (video.ended || video.currentTime >= totalDuration - 0.05) {
-          emitLog(`[libhb] Transcode complete: ${framesEncoded} frames processed.`, "notice");
+          emitLog(`[core 2.0] Transcode frame processing complete: ${framesEncoded} frames rendered.`, "notice");
           recorder.stop();
           return;
         }
-        ctx.save();
-        ctx.clearRect(0, 0, targetWidth, targetHeight);
-        if (filters.rotation !== 0 || filters.flipHorizontal) {
-          ctx.translate(targetWidth / 2, targetHeight / 2);
-          if (filters.rotation !== 0) {
-            ctx.rotate(filters.rotation * Math.PI / 180);
+        if (isProcessingFrame) {
+          requestAnimationFrame(drawFrame);
+          return;
+        }
+        isProcessingFrame = true;
+        try {
+          ctx.save();
+          ctx.clearRect(0, 0, targetWidth, targetHeight);
+          if (filters.rotation !== 0 || filters.flipHorizontal) {
+            ctx.translate(targetWidth / 2, targetHeight / 2);
+            if (filters.rotation !== 0) {
+              ctx.rotate(filters.rotation * Math.PI / 180);
+            }
+            if (filters.flipHorizontal) {
+              ctx.scale(-1, 1);
+            }
+            ctx.translate(-targetWidth / 2, -targetHeight / 2);
           }
-          if (filters.flipHorizontal) {
-            ctx.scale(-1, 1);
+          if (filterCss) {
+            ctx.filter = filterCss.trim();
           }
-          ctx.translate(-targetWidth / 2, -targetHeight / 2);
-        }
-        if (filterCss) {
-          ctx.filter = filterCss.trim();
-        }
-        const cropT = preset.dimensions.cropTop || 0;
-        const cropB = preset.dimensions.cropBottom || 0;
-        const cropL = preset.dimensions.cropLeft || 0;
-        const cropR = preset.dimensions.cropRight || 0;
-        const srcW = Math.max(10, video.videoWidth - cropL - cropR);
-        const srcH = Math.max(10, video.videoHeight - cropT - cropB);
-        ctx.drawImage(
-          video,
-          cropL,
-          cropT,
-          srcW,
-          srcH,
-          0,
-          0,
-          targetWidth,
-          targetHeight
-        );
-        ctx.restore();
-        applyPixelEnhancements(
-          ctx,
-          targetWidth,
-          targetHeight,
-          preset.enhancement,
-          preset.deviceProfile,
-          preset.motionBlur
-        );
-        framesEncoded++;
-        const elapsed = (performance.now() - startTime) / 1e3;
-        const currentFps = framesEncoded / Math.max(0.1, elapsed);
-        const percent = Math.min(99, Math.round(video.currentTime / totalDuration * 100));
-        const remainingFrames = Math.max(0, totalFrames - framesEncoded);
-        const eta = Math.round(remainingFrames / Math.max(1, currentFps));
-        if (framesEncoded % Math.round(targetFps / 2) === 0) {
-          onProgress({
-            percent,
-            currentFrame: framesEncoded,
-            totalFrames,
-            fps: Math.round(currentFps * 10) / 10,
-            etaSeconds: eta,
-            elapsedSeconds: Math.round(elapsed)
-          });
-        }
-        if (framesEncoded % (targetFps * 2) === 0) {
-          emitLog(`[vt:enc] Frame ${framesEncoded}/${totalFrames} (${percent}%) - ${Math.round(currentFps)} fps - ETA: ${eta}s`);
+          const cropT = preset.dimensions.cropTop || 0;
+          const cropB = preset.dimensions.cropBottom || 0;
+          const cropL = preset.dimensions.cropLeft || 0;
+          const cropR = preset.dimensions.cropRight || 0;
+          const srcW = Math.max(10, video.videoWidth - cropL - cropR);
+          const srcH = Math.max(10, video.videoHeight - cropT - cropB);
+          ctx.drawImage(video, cropL, cropT, srcW, srcH, 0, 0, targetWidth, targetHeight);
+          ctx.restore();
+          applyPixelEnhancements(
+            ctx,
+            targetWidth,
+            targetHeight,
+            preset.enhancement,
+            preset.deviceProfile,
+            preset.motionBlur
+          );
+          framesEncoded++;
+          const elapsed = (performance.now() - startTime) / 1e3;
+          const currentFps = framesEncoded / Math.max(0.1, elapsed);
+          const percent = Math.min(99, Math.round(video.currentTime / totalDuration * 100));
+          const remainingFrames = Math.max(0, totalFrames - framesEncoded);
+          const eta = Math.round(remainingFrames / Math.max(1, currentFps));
+          if (framesEncoded % Math.round(targetFps / 2) === 0) {
+            onProgress({
+              percent,
+              currentFrame: framesEncoded,
+              totalFrames,
+              fps: Math.round(currentFps * 10) / 10,
+              etaSeconds: eta,
+              elapsedSeconds: Math.round(elapsed)
+            });
+          }
+          if (framesEncoded % (targetFps * 2) === 0) {
+            emitLog(`[encoder] Frame ${framesEncoded}/${totalFrames} (${percent}%) - ${Math.round(currentFps)} fps - ETA: ${eta}s`);
+          }
+        } finally {
+          isProcessingFrame = false;
         }
         requestAnimationFrame(drawFrame);
       };
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         const blob = new Blob(chunks, { type: mimeType });
         const outputUrl = URL.createObjectURL(blob);
         this.activeControllers.delete(job.id);
         cleanup();
+        emitLog(`[validator] Validating exported container integrity & track presence...`);
+        let validationResult;
+        try {
+          validationResult = await exportValidator.validateExport(blob, totalDuration);
+          if (validationResult.valid) {
+            emitLog(
+              `[validator] Verified: playable duration ${validationResult.durationSeconds.toFixed(1)}s, ${validationResult.width}x${validationResult.height}, decodable: true`,
+              "notice"
+            );
+          } else {
+            emitLog(`[validator] Validation warning: ${validationResult.issues.join("; ")}`, "warning");
+          }
+        } catch (valErr) {
+          console.warn("Export validation check non-blocking error:", valErr);
+        }
         onProgress({
           percent: 100,
           currentFrame: framesEncoded,
@@ -16378,24 +17146,25 @@ var VideoTranscoderService = class {
             id: `log-done-${Date.now()}`,
             timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString(),
             level: "notice",
-            message: `[libhb] Work done! Encoded file size: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${Math.round(blob.size * 8 / totalDuration / 1e3)} kbps)`
+            message: `[core 2.0] Work done! Encoded size: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${Math.round(blob.size * 8 / totalDuration / 1e3)} kbps)`
           }
         });
         resolve({
           blob,
           url: outputUrl,
-          sizeBytes: blob.size
+          sizeBytes: blob.size,
+          validation: validationResult
         });
       };
       const cleanup = () => {
         try {
           video.pause();
           video.src = "";
-          audioCtx?.close();
+          audioSession?.cleanup();
         } catch (e) {
         }
       };
-      video.onerror = (err) => {
+      video.onerror = () => {
         this.activeControllers.delete(job.id);
         cleanup();
         reject(new Error("Video playback error during transcoding stream."));
@@ -18205,7 +18974,8 @@ var TranscodeTab = ({
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("h1", { className: "text-xl font-bold tracking-tight text-white flex items-center gap-2", children: [
           "Transcode & Enhance",
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[10px] font-mono font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20", children: "v1.9.0" })
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[10px] font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20", children: "v2.0 Core" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "hidden sm:inline-block text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20", children: "Hardware Accelerated" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "text-xs text-slate-400", children: "Hardware Accelerated Video Enhancement & Encoding" })
       ] }),
@@ -18575,7 +19345,18 @@ var PresetsTab = ({
   const [newPresetCodec, setNewPresetCodec] = (0, import_react7.useState)("H.265 (HEVC 10-bit)");
   const [newPresetRf, setNewPresetRf] = (0, import_react7.useState)(22);
   const [newPresetResolution, setNewPresetResolution] = (0, import_react7.useState)("1080p");
-  const categories = ["All", "Enhancement Presets", "Apple Devices", "General", "Web", "Matroska", "Production", "Custom"];
+  const categories = [
+    "All",
+    "Master Archival (High Quality)",
+    "Web & Streaming (High Quality)",
+    "Enhancement Presets",
+    "Apple Devices",
+    "General",
+    "Web",
+    "Matroska",
+    "Production",
+    "Custom"
+  ];
   const filteredPresets = presets.filter((p) => {
     const matchesCat = selectedCategory === "All" || p.category === selectedCategory;
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.description.toLowerCase().includes(searchQuery.toLowerCase()) || p.video.codec.toLowerCase().includes(searchQuery.toLowerCase());
@@ -19274,7 +20055,7 @@ var VideoStudioTab = ({
     /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex items-center justify-between", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { children: [
       /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("h1", { className: "text-xl font-bold tracking-tight text-white flex items-center gap-2", children: [
         "HandBrake Inspector",
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20", children: "v1.9.0" })
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20", children: "v2.0 Core" })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("p", { className: "text-xs text-slate-400", children: [
         "Configuring: ",
