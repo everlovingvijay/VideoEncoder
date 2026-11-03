@@ -110,15 +110,18 @@ export default function App() {
   const addLog = (message: string, level: LogEntry['level'] = 'info') => {
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-    setLogs((prev) => [
-      ...prev,
-      {
-        id: `log-${Date.now()}-${Math.random()}`,
-        timestamp: timeStr,
-        level,
-        message,
-      },
-    ]);
+    setLogs((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: `log-${Date.now()}-${Math.random()}`,
+          timestamp: timeStr,
+          level,
+          message,
+        },
+      ];
+      return next.length > 500 ? next.slice(next.length - 500) : next;
+    });
   };
 
   const handleSaveCustomPreset = (newPreset: HandbrakePreset) => {
@@ -198,7 +201,10 @@ export default function App() {
         );
 
         if (prog.logEntry) {
-          setLogs((l) => [...l, prog.logEntry!]);
+          setLogs((l) => {
+            const next = [...l, prog.logEntry!];
+            return next.length > 500 ? next.slice(next.length - 500) : next;
+          });
         }
       });
 

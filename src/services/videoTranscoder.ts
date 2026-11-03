@@ -40,7 +40,12 @@ export class VideoTranscoderService {
       video.playsInline = true;
 
       const cleanup = () => {
-        video.src = '';
+        video.onerror = null;
+        video.onloadedmetadata = null;
+        video.onseeked = null;
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
         video.remove();
       };
 
@@ -132,6 +137,19 @@ export class VideoTranscoderService {
       video.playsInline = true;
       video.preload = 'auto';
 
+      // Attach offscreen to document.body so Chromium/WebKit does not throttle or freeze video clock
+      if (typeof document !== 'undefined' && document.body) {
+        video.style.position = 'fixed';
+        video.style.top = '-9999px';
+        video.style.left = '-9999px';
+        video.style.width = '1px';
+        video.style.height = '1px';
+        video.style.opacity = '0';
+        video.style.pointerEvents = 'none';
+        video.tabIndex = -1;
+        document.body.appendChild(video);
+      }
+
       // DO NOT set crossOrigin for blob: or data: URLs to avoid browser CORS errors
       if (srcUrl.startsWith('http://') || srcUrl.startsWith('https://')) {
         try {
@@ -194,8 +212,16 @@ export class VideoTranscoderService {
           isAborted = true;
           try {
             if (recorder && recorder.state !== 'inactive') recorder.stop();
+            video.onerror = null;
+            video.onloadeddata = null;
+            video.oncanplay = null;
+            video.onloadedmetadata = null;
             video.pause();
-            video.src = '';
+            video.removeAttribute('src');
+            video.load();
+            if (video.parentNode) {
+              video.parentNode.removeChild(video);
+            }
             audioSession?.cleanup();
             if (freshBlobUrl) URL.revokeObjectURL(freshBlobUrl);
           } catch (e) {
@@ -390,6 +416,9 @@ export class VideoTranscoderService {
         startEncoding();
       }
 
+      let lastTime = -1;
+      let stalledCount = 0;
+
       const drawFrame = () => {
         if (isAborted) return;
         if (isPaused) {
@@ -397,12 +426,30 @@ export class VideoTranscoderService {
           return;
         }
 
-        if (video.ended || video.currentTime >= totalDuration - 0.05) {
+        // Hard completion checks: video finished OR duration exceeded OR all expected frames processed
+        if (
+          video.ended ||
+          (video.currentTime > 0 && video.currentTime >= totalDuration - 0.05) ||
+          framesEncoded >= totalFrames
+        ) {
           emitLog(`[core 2.0] Transcode frame processing complete: ${framesEncoded} frames rendered.`, 'notice');
           if (recorder && recorder.state !== 'inactive') {
             recorder.stop();
           }
           return;
+        }
+
+        // Playback stall watchdog: if currentTime is not advancing, nudge it forward
+        if (lastTime === video.currentTime) {
+          stalledCount++;
+          if (stalledCount > 10) {
+            const step = 1 / targetFps;
+            video.currentTime = Math.min(totalDuration, video.currentTime + step);
+            stalledCount = 0;
+          }
+        } else {
+          lastTime = video.currentTime;
+          stalledCount = 0;
         }
 
         // Bounded frame processing check to avoid overlapping heavy pixel loops
@@ -485,8 +532,19 @@ export class VideoTranscoderService {
 
       const cleanup = () => {
         try {
+          // Remove event listeners FIRST so resetting src never triggers false errors
+          video.onerror = null;
+          video.onloadeddata = null;
+          video.oncanplay = null;
+          video.onloadedmetadata = null;
           video.pause();
-          video.src = '';
+          video.removeAttribute('src');
+          video.load();
+
+          if (video.parentNode) {
+            video.parentNode.removeChild(video);
+          }
+
           audioSession?.cleanup();
           if (freshBlobUrl) {
             URL.revokeObjectURL(freshBlobUrl);
@@ -497,6 +555,8 @@ export class VideoTranscoderService {
       };
 
       video.onerror = () => {
+        // Ignore if already aborted or encoding has completed
+        if (isAborted || (hasStarted && framesEncoded >= totalFrames)) return;
         const err = video.error;
         let codeStr = 'Unknown';
         if (err) {

@@ -165,6 +165,11 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                     <p className="text-[11px] text-slate-400 truncate">
                       {job.preset.name} · {job.preset.video.codec.split(' ')[0]}
                     </p>
+                    {job.errorMessage && (
+                      <p className="text-[10px] text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 truncate max-w-[280px]">
+                        {job.errorMessage}
+                      </p>
+                    )}
                     <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500">
                       <span>Source: {(job.source.sizeBytes / 1024 / 1024).toFixed(1)} MB</span>
                       {job.outputSizeBytes > 0 && (
@@ -184,8 +189,8 @@ export const QueueTab: React.FC<QueueTabProps> = ({
 
                 {/* Right Action buttons */}
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Status: Waiting -> Start Encode button */}
-                  {job.status === 'waiting' && (
+                  {/* Status: Waiting / Pending -> Start Encode button */}
+                  {(job.status === 'waiting' || (job.status as string) === 'pending') && (
                     <button
                       type="button"
                       disabled={isEncoding}

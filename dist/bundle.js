@@ -16845,7 +16845,12 @@ var VideoTranscoderService = class {
       video.muted = true;
       video.playsInline = true;
       const cleanup = () => {
-        video.src = "";
+        video.onerror = null;
+        video.onloadedmetadata = null;
+        video.onseeked = null;
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
         video.remove();
       };
       video.onloadedmetadata = () => {
@@ -16924,6 +16929,17 @@ var VideoTranscoderService = class {
       video.setAttribute("playsinline", "");
       video.playsInline = true;
       video.preload = "auto";
+      if (typeof document !== "undefined" && document.body) {
+        video.style.position = "fixed";
+        video.style.top = "-9999px";
+        video.style.left = "-9999px";
+        video.style.width = "1px";
+        video.style.height = "1px";
+        video.style.opacity = "0";
+        video.style.pointerEvents = "none";
+        video.tabIndex = -1;
+        document.body.appendChild(video);
+      }
       if (srcUrl.startsWith("http://") || srcUrl.startsWith("https://")) {
         try {
           const urlObj = new URL(srcUrl, typeof window !== "undefined" ? window.location.href : void 0);
@@ -16966,8 +16982,16 @@ var VideoTranscoderService = class {
           isAborted = true;
           try {
             if (recorder && recorder.state !== "inactive") recorder.stop();
+            video.onerror = null;
+            video.onloadeddata = null;
+            video.oncanplay = null;
+            video.onloadedmetadata = null;
             video.pause();
-            video.src = "";
+            video.removeAttribute("src");
+            video.load();
+            if (video.parentNode) {
+              video.parentNode.removeChild(video);
+            }
             audioSession?.cleanup();
             if (freshBlobUrl) URL.revokeObjectURL(freshBlobUrl);
           } catch (e) {
@@ -17137,18 +17161,31 @@ var VideoTranscoderService = class {
       if (video.readyState >= 2) {
         startEncoding();
       }
+      let lastTime = -1;
+      let stalledCount = 0;
       const drawFrame = () => {
         if (isAborted) return;
         if (isPaused) {
           requestAnimationFrame(drawFrame);
           return;
         }
-        if (video.ended || video.currentTime >= totalDuration - 0.05) {
+        if (video.ended || video.currentTime > 0 && video.currentTime >= totalDuration - 0.05 || framesEncoded >= totalFrames) {
           emitLog(`[core 2.0] Transcode frame processing complete: ${framesEncoded} frames rendered.`, "notice");
           if (recorder && recorder.state !== "inactive") {
             recorder.stop();
           }
           return;
+        }
+        if (lastTime === video.currentTime) {
+          stalledCount++;
+          if (stalledCount > 10) {
+            const step = 1 / targetFps;
+            video.currentTime = Math.min(totalDuration, video.currentTime + step);
+            stalledCount = 0;
+          }
+        } else {
+          lastTime = video.currentTime;
+          stalledCount = 0;
         }
         if (isProcessingFrame) {
           requestAnimationFrame(drawFrame);
@@ -17213,8 +17250,16 @@ var VideoTranscoderService = class {
       };
       const cleanup = () => {
         try {
+          video.onerror = null;
+          video.onloadeddata = null;
+          video.oncanplay = null;
+          video.onloadedmetadata = null;
           video.pause();
-          video.src = "";
+          video.removeAttribute("src");
+          video.load();
+          if (video.parentNode) {
+            video.parentNode.removeChild(video);
+          }
           audioSession?.cleanup();
           if (freshBlobUrl) {
             URL.revokeObjectURL(freshBlobUrl);
@@ -17223,6 +17268,7 @@ var VideoTranscoderService = class {
         }
       };
       video.onerror = () => {
+        if (isAborted || hasStarted && framesEncoded >= totalFrames) return;
         const err = video.error;
         let codeStr = "Unknown";
         if (err) {
@@ -20054,6 +20100,7 @@ var QueueTab = ({
                       " \xB7 ",
                       job.preset.video.codec.split(" ")[0]
                     ] }),
+                    job.errorMessage && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: "text-[10px] text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 truncate max-w-[280px]", children: job.errorMessage }),
                     /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex items-center gap-2 text-[10px] font-mono text-slate-500", children: [
                       /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("span", { children: [
                         "Source: ",
@@ -20073,7 +20120,7 @@ var QueueTab = ({
                   ] })
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex items-center gap-1.5 shrink-0", children: [
-                  job.status === "waiting" && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+                  (job.status === "waiting" || job.status === "pending") && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
                     "button",
                     {
                       type: "button",
@@ -24666,15 +24713,18 @@ function App() {
   const addLog = (message, level = "info") => {
     const now = /* @__PURE__ */ new Date();
     const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-    setLogs((prev) => [
-      ...prev,
-      {
-        id: `log-${Date.now()}-${Math.random()}`,
-        timestamp: timeStr,
-        level,
-        message
-      }
-    ]);
+    setLogs((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: `log-${Date.now()}-${Math.random()}`,
+          timestamp: timeStr,
+          level,
+          message
+        }
+      ];
+      return next.length > 500 ? next.slice(next.length - 500) : next;
+    });
   };
   const handleSaveCustomPreset = (newPreset) => {
     setPresets((prev) => {
@@ -24744,7 +24794,10 @@ function App() {
           })
         );
         if (prog.logEntry) {
-          setLogs((l) => [...l, prog.logEntry]);
+          setLogs((l) => {
+            const next = [...l, prog.logEntry];
+            return next.length > 500 ? next.slice(next.length - 500) : next;
+          });
         }
       });
       const completedJob = {
