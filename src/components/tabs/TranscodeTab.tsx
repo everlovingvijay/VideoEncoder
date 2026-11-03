@@ -23,6 +23,7 @@ import {
   Layers,
   ArrowRight,
   ShieldAlert,
+  Download,
 } from 'lucide-react';
 import { PRESET_SAMPLE_METADATA, generateSyntheticVideoBlob } from '../../data/sampleVideos';
 import { DEFAULT_PRESETS } from '../../data/handbrakePresets';
@@ -41,6 +42,8 @@ interface TranscodeTabProps {
   onAddToQueue: () => void;
   isEncoding: boolean;
   latestEncodedUrl?: string;
+  latestEncodedName?: string;
+  latestEncodedSizeBytes?: number;
 }
 
 export const TranscodeTab: React.FC<TranscodeTabProps> = ({
@@ -54,6 +57,8 @@ export const TranscodeTab: React.FC<TranscodeTabProps> = ({
   onAddToQueue,
   isEncoding,
   latestEncodedUrl,
+  latestEncodedName,
+  latestEncodedSizeBytes,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [splitPos, setSplitPos] = useState(50); // A/B comparison slider
@@ -261,6 +266,44 @@ export const TranscodeTab: React.FC<TranscodeTabProps> = ({
               <span>Apply Preset</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Prominent Download Banner for Encoded Video */}
+      {latestEncodedUrl && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/60 border-2 border-emerald-500/50 shadow-xl space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <Check className="w-6 h-6 stroke-[3]" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                    Transcoding Complete
+                  </span>
+                  <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-semibold">
+                    Ready to Save
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 font-mono truncate max-w-[260px] sm:max-w-md mt-0.5">
+                  {latestEncodedName || 'encoded_video.mp4'}
+                  {latestEncodedSizeBytes ? ` · ${(latestEncodedSizeBytes / 1024 / 1024).toFixed(2)} MB` : ''}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <a
+                href={latestEncodedUrl}
+                download={latestEncodedName || 'encoded_video.mp4'}
+                className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download Encoded Video</span>
+              </a>
+            </div>
           </div>
         </div>
       )}
@@ -515,6 +558,17 @@ export const TranscodeTab: React.FC<TranscodeTabProps> = ({
 
       {/* Primary Actions */}
       <div className="space-y-2 pt-1">
+        {latestEncodedUrl && (
+          <a
+            href={latestEncodedUrl}
+            download={latestEncodedName || 'encoded_video.mp4'}
+            className="w-full h-12 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 shadow-lg shadow-emerald-500/25 transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download Encoded Video ({latestEncodedSizeBytes ? `${(latestEncodedSizeBytes / 1024 / 1024).toFixed(2)} MB` : 'MP4'})</span>
+          </a>
+        )}
+
         <button
           type="button"
           disabled={!source || isEncoding}

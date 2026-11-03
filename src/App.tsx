@@ -71,6 +71,7 @@ export default function App() {
   const [isEncoding, setIsEncoding] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [latestEncodedUrl, setLatestEncodedUrl] = useState<string | undefined>(undefined);
+  const [latestEncodedJob, setLatestEncodedJob] = useState<QueueItem | null>(null);
 
   // Load an initial demo sample video so user can test right away
   useEffect(() => {
@@ -200,22 +201,35 @@ export default function App() {
         }
       });
 
+      const completedJob: QueueItem = {
+        ...job,
+        status: 'completed',
+        progressPercent: 100,
+        outputSizeBytes: result.sizeBytes,
+        outputBlobUrl: result.url,
+        completedAt: Date.now(),
+      };
+
       setQueue((prev) =>
-        prev.map((q) => {
-          if (q.id !== job.id) return q;
-          return {
-            ...q,
-            status: 'completed',
-            progressPercent: 100,
-            outputSizeBytes: result.sizeBytes,
-            outputBlobUrl: result.url,
-            completedAt: Date.now(),
-          };
-        })
+        prev.map((q) => (q.id === job.id ? completedJob : q))
       );
 
       setLatestEncodedUrl(result.url);
-      addLog(`[queue] Job "${job.outputName}" completed successfully! Ready for playback and export.`, 'notice');
+      setLatestEncodedJob(completedJob);
+      addLog(`[queue] Job "${job.outputName}" completed successfully! File ready for download.`, 'notice');
+
+      // Auto-trigger browser download so user immediately gets the file
+      try {
+        const dlLink = document.createElement('a');
+        dlLink.href = result.url;
+        dlLink.download = job.outputName;
+        document.body.appendChild(dlLink);
+        dlLink.click();
+        document.body.removeChild(dlLink);
+        addLog(`[download] Automatic download started for "${job.outputName}"`, 'info');
+      } catch (dlErr) {
+        console.warn('Auto download note:', dlErr);
+      }
 
       // Play completion chime
       try {
@@ -250,20 +264,21 @@ export default function App() {
   };
 
   const handleStartEncodeNow = async () => {
-    let jobToRun = queue.find((q) => q.status === 'waiting');
-    if (!jobToRun) {
-      jobToRun = handleAddToQueue() || undefined;
-    }
-    if (jobToRun) {
+    if (!source || isEncoding) return;
+    const newJob = handleAddToQueue();
+    if (newJob) {
       setActiveTab('queue');
-      await runJob(jobToRun);
+      await runJob(newJob);
     }
   };
 
   const handleStartQueue = async () => {
-    const next = queue.find((q) => q.status === 'waiting');
-    if (next) {
-      await runJob(next);
+    if (isEncoding) return;
+    const waiting = queue.filter((q) => q.status === 'waiting');
+    if (waiting.length > 0) {
+      for (const job of waiting) {
+        await runJob(job);
+      }
     }
   };
 
@@ -334,6 +349,8 @@ export default function App() {
             onAddToQueue={handleAddToQueue}
             isEncoding={isEncoding}
             latestEncodedUrl={latestEncodedUrl}
+            latestEncodedName={latestEncodedJob?.outputName}
+            latestEncodedSizeBytes={latestEncodedJob?.outputSizeBytes}
           />
         );
       case 'presets':
@@ -356,6 +373,7 @@ export default function App() {
             logs={logs}
             isEncoding={isEncoding}
             onStartQueue={handleStartQueue}
+            onStartSingleJob={(job) => runJob(job)}
             onPauseQueue={handlePauseActive}
             onResumeQueue={handleResumeActive}
             onRemoveItem={handleRemoveQueueItem}

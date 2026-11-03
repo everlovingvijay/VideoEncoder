@@ -270,14 +270,29 @@ export class VideoTranscoderService {
         );
       }
 
-      video.onloadeddata = () => {
+      let hasStarted = false;
+      const startEncoding = () => {
+        if (hasStarted || isAborted) return;
+        hasStarted = true;
         totalDuration = video.duration || totalDuration;
         totalFrames = Math.max(1, Math.round(totalDuration * targetFps));
-        recorder.start(1000); // 1s slice
+        try {
+          if (recorder.state === 'inactive') {
+            recorder.start(1000); // 1s slice
+          }
+        } catch (err) {
+          console.warn('Recorder start notice:', err);
+        }
         video.currentTime = 0;
         video.play().catch((err) => console.warn('Autoplay caught:', err));
         drawFrame();
       };
+
+      video.onloadeddata = startEncoding;
+      video.oncanplay = startEncoding;
+      if (video.readyState >= 2) {
+        startEncoding();
+      }
 
       const drawFrame = () => {
         if (isAborted) return;

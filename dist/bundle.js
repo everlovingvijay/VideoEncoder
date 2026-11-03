@@ -17035,14 +17035,28 @@ var VideoTranscoderService = class {
           `[motion-blur] Direction: ${preset.motionBlur.direction}, Shutter: ${preset.motionBlur.shutterSpeed}`
         );
       }
-      video.onloadeddata = () => {
+      let hasStarted = false;
+      const startEncoding = () => {
+        if (hasStarted || isAborted) return;
+        hasStarted = true;
         totalDuration = video.duration || totalDuration;
         totalFrames = Math.max(1, Math.round(totalDuration * targetFps));
-        recorder.start(1e3);
+        try {
+          if (recorder.state === "inactive") {
+            recorder.start(1e3);
+          }
+        } catch (err) {
+          console.warn("Recorder start notice:", err);
+        }
         video.currentTime = 0;
         video.play().catch((err) => console.warn("Autoplay caught:", err));
         drawFrame();
       };
+      video.onloadeddata = startEncoding;
+      video.oncanplay = startEncoding;
+      if (video.readyState >= 2) {
+        startEncoding();
+      }
       const drawFrame = () => {
         if (isAborted) return;
         if (isPaused) {
@@ -17323,60 +17337,68 @@ var ChevronRight = createLucideIcon("chevron-right", __iconNode7);
 var __iconNode8 = [["path", { d: "m18 15-6-6-6 6", key: "153udz" }]];
 var ChevronUp = createLucideIcon("chevron-up", __iconNode8);
 
-// node_modules/lucide-react/dist/esm/icons/circle-check-big.js
+// node_modules/lucide-react/dist/esm/icons/circle-alert.js
 var __iconNode9 = [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["line", { x1: "12", x2: "12", y1: "8", y2: "12", key: "1pkeuh" }],
+  ["line", { x1: "12", x2: "12.01", y1: "16", y2: "16", key: "4dfq90" }]
+];
+var CircleAlert = createLucideIcon("circle-alert", __iconNode9);
+
+// node_modules/lucide-react/dist/esm/icons/circle-check-big.js
+var __iconNode10 = [
   ["path", { d: "M21.801 10A10 10 0 1 1 17 3.335", key: "yps3ct" }],
   ["path", { d: "m9 11 3 3L22 4", key: "1pflzl" }]
 ];
-var CircleCheckBig = createLucideIcon("circle-check-big", __iconNode9);
+var CircleCheckBig = createLucideIcon("circle-check-big", __iconNode10);
 
 // node_modules/lucide-react/dist/esm/icons/circle-check.js
-var __iconNode10 = [
+var __iconNode11 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ];
-var CircleCheck = createLucideIcon("circle-check", __iconNode10);
+var CircleCheck = createLucideIcon("circle-check", __iconNode11);
 
 // node_modules/lucide-react/dist/esm/icons/circle-plus.js
-var __iconNode11 = [
+var __iconNode12 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M8 12h8", key: "1wcyev" }],
   ["path", { d: "M12 8v8", key: "napkw2" }]
 ];
-var CirclePlus = createLucideIcon("circle-plus", __iconNode11);
+var CirclePlus = createLucideIcon("circle-plus", __iconNode12);
 
 // node_modules/lucide-react/dist/esm/icons/circle-x.js
-var __iconNode12 = [
+var __iconNode13 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m15 9-6 6", key: "1uzhvr" }],
   ["path", { d: "m9 9 6 6", key: "z0biqf" }]
 ];
-var CircleX = createLucideIcon("circle-x", __iconNode12);
+var CircleX = createLucideIcon("circle-x", __iconNode13);
 
 // node_modules/lucide-react/dist/esm/icons/clock.js
-var __iconNode13 = [
+var __iconNode14 = [
   ["path", { d: "M12 6v6l4 2", key: "mmk7yg" }],
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
 ];
-var Clock = createLucideIcon("clock", __iconNode13);
+var Clock = createLucideIcon("clock", __iconNode14);
 
 // node_modules/lucide-react/dist/esm/icons/code-xml.js
-var __iconNode14 = [
+var __iconNode15 = [
   ["path", { d: "m18 16 4-4-4-4", key: "1inbqp" }],
   ["path", { d: "m6 8-4 4 4 4", key: "15zrgr" }],
   ["path", { d: "m14.5 4-5 16", key: "e7oirm" }]
 ];
-var CodeXml = createLucideIcon("code-xml", __iconNode14);
+var CodeXml = createLucideIcon("code-xml", __iconNode15);
 
 // node_modules/lucide-react/dist/esm/icons/copy.js
-var __iconNode15 = [
+var __iconNode16 = [
   ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
   ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
 ];
-var Copy = createLucideIcon("copy", __iconNode15);
+var Copy = createLucideIcon("copy", __iconNode16);
 
 // node_modules/lucide-react/dist/esm/icons/cpu.js
-var __iconNode16 = [
+var __iconNode17 = [
   ["path", { d: "M12 20v2", key: "1lh1kg" }],
   ["path", { d: "M12 2v2", key: "tus03m" }],
   ["path", { d: "M17 20v2", key: "1rnc9c" }],
@@ -17392,50 +17414,50 @@ var __iconNode16 = [
   ["rect", { x: "4", y: "4", width: "16", height: "16", rx: "2", key: "1vbyd7" }],
   ["rect", { x: "8", y: "8", width: "8", height: "8", rx: "1", key: "z9xiuo" }]
 ];
-var Cpu = createLucideIcon("cpu", __iconNode16);
+var Cpu = createLucideIcon("cpu", __iconNode17);
 
 // node_modules/lucide-react/dist/esm/icons/crop.js
-var __iconNode17 = [
+var __iconNode18 = [
   ["path", { d: "M6 2v14a2 2 0 0 0 2 2h14", key: "ron5a4" }],
   ["path", { d: "M18 22V8a2 2 0 0 0-2-2H2", key: "7s9ehn" }]
 ];
-var Crop = createLucideIcon("crop", __iconNode17);
+var Crop = createLucideIcon("crop", __iconNode18);
 
 // node_modules/lucide-react/dist/esm/icons/download.js
-var __iconNode18 = [
+var __iconNode19 = [
   ["path", { d: "M12 15V3", key: "m9g1x1" }],
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
   ["path", { d: "m7 10 5 5 5-5", key: "brsn70" }]
 ];
-var Download = createLucideIcon("download", __iconNode18);
+var Download = createLucideIcon("download", __iconNode19);
 
 // node_modules/lucide-react/dist/esm/icons/ellipsis-vertical.js
-var __iconNode19 = [
+var __iconNode20 = [
   ["circle", { cx: "12", cy: "12", r: "1", key: "41hilf" }],
   ["circle", { cx: "12", cy: "5", r: "1", key: "gxeob9" }],
   ["circle", { cx: "12", cy: "19", r: "1", key: "lyex9k" }]
 ];
-var EllipsisVertical = createLucideIcon("ellipsis-vertical", __iconNode19);
+var EllipsisVertical = createLucideIcon("ellipsis-vertical", __iconNode20);
 
 // node_modules/lucide-react/dist/esm/icons/external-link.js
-var __iconNode20 = [
+var __iconNode21 = [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ];
-var ExternalLink = createLucideIcon("external-link", __iconNode20);
+var ExternalLink = createLucideIcon("external-link", __iconNode21);
 
 // node_modules/lucide-react/dist/esm/icons/file-code.js
-var __iconNode21 = [
+var __iconNode22 = [
   ["path", { d: "M10 12.5 8 15l2 2.5", key: "1tg20x" }],
   ["path", { d: "m14 12.5 2 2.5-2 2.5", key: "yinavb" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z", key: "1mlx9k" }]
 ];
-var FileCode = createLucideIcon("file-code", __iconNode21);
+var FileCode = createLucideIcon("file-code", __iconNode22);
 
 // node_modules/lucide-react/dist/esm/icons/file-play.js
-var __iconNode22 = [
+var __iconNode23 = [
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z", key: "1mlx9k" }],
   [
@@ -17446,10 +17468,10 @@ var __iconNode22 = [
     }
   ]
 ];
-var FilePlay = createLucideIcon("file-play", __iconNode22);
+var FilePlay = createLucideIcon("file-play", __iconNode23);
 
 // node_modules/lucide-react/dist/esm/icons/film.js
-var __iconNode23 = [
+var __iconNode24 = [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M7 3v18", key: "bbkbws" }],
   ["path", { d: "M3 7.5h4", key: "zfgn84" }],
@@ -17459,18 +17481,18 @@ var __iconNode23 = [
   ["path", { d: "M17 7.5h4", key: "myr1c1" }],
   ["path", { d: "M17 16.5h4", key: "go4c1d" }]
 ];
-var Film = createLucideIcon("film", __iconNode23);
+var Film = createLucideIcon("film", __iconNode24);
 
 // node_modules/lucide-react/dist/esm/icons/globe.js
-var __iconNode24 = [
+var __iconNode25 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", key: "13o1zl" }],
   ["path", { d: "M2 12h20", key: "9i4pu4" }]
 ];
-var Globe = createLucideIcon("globe", __iconNode24);
+var Globe = createLucideIcon("globe", __iconNode25);
 
 // node_modules/lucide-react/dist/esm/icons/hard-drive.js
-var __iconNode25 = [
+var __iconNode26 = [
   ["line", { x1: "22", x2: "2", y1: "12", y2: "12", key: "1y58io" }],
   [
     "path",
@@ -17482,18 +17504,18 @@ var __iconNode25 = [
   ["line", { x1: "6", x2: "6.01", y1: "16", y2: "16", key: "sgf278" }],
   ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
 ];
-var HardDrive = createLucideIcon("hard-drive", __iconNode25);
+var HardDrive = createLucideIcon("hard-drive", __iconNode26);
 
 // node_modules/lucide-react/dist/esm/icons/info.js
-var __iconNode26 = [
+var __iconNode27 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 16v-4", key: "1dtifu" }],
   ["path", { d: "M12 8h.01", key: "e9boi3" }]
 ];
-var Info = createLucideIcon("info", __iconNode26);
+var Info = createLucideIcon("info", __iconNode27);
 
 // node_modules/lucide-react/dist/esm/icons/layers.js
-var __iconNode27 = [
+var __iconNode28 = [
   [
     "path",
     {
@@ -17516,10 +17538,10 @@ var __iconNode27 = [
     }
   ]
 ];
-var Layers = createLucideIcon("layers", __iconNode27);
+var Layers = createLucideIcon("layers", __iconNode28);
 
 // node_modules/lucide-react/dist/esm/icons/list-ordered.js
-var __iconNode28 = [
+var __iconNode29 = [
   ["path", { d: "M11 5h10", key: "1cz7ny" }],
   ["path", { d: "M11 12h10", key: "1438ji" }],
   ["path", { d: "M11 19h10", key: "11t30w" }],
@@ -17527,41 +17549,41 @@ var __iconNode28 = [
   ["path", { d: "M4 9h2", key: "r1h2o0" }],
   ["path", { d: "M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02", key: "xtkcd5" }]
 ];
-var ListOrdered = createLucideIcon("list-ordered", __iconNode28);
+var ListOrdered = createLucideIcon("list-ordered", __iconNode29);
 
 // node_modules/lucide-react/dist/esm/icons/lock.js
-var __iconNode29 = [
+var __iconNode30 = [
   ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
   ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
 ];
-var Lock = createLucideIcon("lock", __iconNode29);
+var Lock = createLucideIcon("lock", __iconNode30);
 
 // node_modules/lucide-react/dist/esm/icons/maximize-2.js
-var __iconNode30 = [
+var __iconNode31 = [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "m21 3-7 7", key: "1l2asr" }],
   ["path", { d: "m3 21 7-7", key: "tjx5ai" }],
   ["path", { d: "M9 21H3v-6", key: "wtvkvv" }]
 ];
-var Maximize2 = createLucideIcon("maximize-2", __iconNode30);
+var Maximize2 = createLucideIcon("maximize-2", __iconNode31);
 
 // node_modules/lucide-react/dist/esm/icons/monitor.js
-var __iconNode31 = [
+var __iconNode32 = [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ];
-var Monitor = createLucideIcon("monitor", __iconNode31);
+var Monitor = createLucideIcon("monitor", __iconNode32);
 
 // node_modules/lucide-react/dist/esm/icons/pause.js
-var __iconNode32 = [
+var __iconNode33 = [
   ["rect", { x: "14", y: "3", width: "5", height: "18", rx: "1", key: "kaeet6" }],
   ["rect", { x: "5", y: "3", width: "5", height: "18", rx: "1", key: "1wsw3u" }]
 ];
-var Pause = createLucideIcon("pause", __iconNode32);
+var Pause = createLucideIcon("pause", __iconNode33);
 
 // node_modules/lucide-react/dist/esm/icons/play.js
-var __iconNode33 = [
+var __iconNode34 = [
   [
     "path",
     {
@@ -17570,59 +17592,59 @@ var __iconNode33 = [
     }
   ]
 ];
-var Play = createLucideIcon("play", __iconNode33);
+var Play = createLucideIcon("play", __iconNode34);
 
 // node_modules/lucide-react/dist/esm/icons/plus.js
-var __iconNode34 = [
+var __iconNode35 = [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ];
-var Plus = createLucideIcon("plus", __iconNode34);
+var Plus = createLucideIcon("plus", __iconNode35);
 
 // node_modules/lucide-react/dist/esm/icons/refresh-cw.js
-var __iconNode35 = [
+var __iconNode36 = [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
   ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ];
-var RefreshCw = createLucideIcon("refresh-cw", __iconNode35);
+var RefreshCw = createLucideIcon("refresh-cw", __iconNode36);
 
 // node_modules/lucide-react/dist/esm/icons/rotate-cw.js
-var __iconNode36 = [
+var __iconNode37 = [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ];
-var RotateCw = createLucideIcon("rotate-cw", __iconNode36);
+var RotateCw = createLucideIcon("rotate-cw", __iconNode37);
 
 // node_modules/lucide-react/dist/esm/icons/search.js
-var __iconNode37 = [
+var __iconNode38 = [
   ["path", { d: "m21 21-4.34-4.34", key: "14j7rj" }],
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }]
 ];
-var Search = createLucideIcon("search", __iconNode37);
+var Search = createLucideIcon("search", __iconNode38);
 
 // node_modules/lucide-react/dist/esm/icons/server.js
-var __iconNode38 = [
+var __iconNode39 = [
   ["rect", { width: "20", height: "8", x: "2", y: "2", rx: "2", ry: "2", key: "ngkwjq" }],
   ["rect", { width: "20", height: "8", x: "2", y: "14", rx: "2", ry: "2", key: "iecqi9" }],
   ["line", { x1: "6", x2: "6.01", y1: "6", y2: "6", key: "16zg32" }],
   ["line", { x1: "6", x2: "6.01", y1: "18", y2: "18", key: "nzw8ys" }]
 ];
-var Server = createLucideIcon("server", __iconNode38);
+var Server = createLucideIcon("server", __iconNode39);
 
 // node_modules/lucide-react/dist/esm/icons/share-2.js
-var __iconNode39 = [
+var __iconNode40 = [
   ["circle", { cx: "18", cy: "5", r: "3", key: "gq8acd" }],
   ["circle", { cx: "6", cy: "12", r: "3", key: "w7nqdw" }],
   ["circle", { cx: "18", cy: "19", r: "3", key: "1xt0gg" }],
   ["line", { x1: "8.59", x2: "15.42", y1: "13.51", y2: "17.49", key: "47mynk" }],
   ["line", { x1: "15.41", x2: "8.59", y1: "6.51", y2: "10.49", key: "1n3mei" }]
 ];
-var Share2 = createLucideIcon("share-2", __iconNode39);
+var Share2 = createLucideIcon("share-2", __iconNode40);
 
 // node_modules/lucide-react/dist/esm/icons/sliders-vertical.js
-var __iconNode40 = [
+var __iconNode41 = [
   ["path", { d: "M10 8h4", key: "1sr2af" }],
   ["path", { d: "M12 21v-9", key: "17s77i" }],
   ["path", { d: "M12 8V3", key: "13r4qs" }],
@@ -17633,10 +17655,10 @@ var __iconNode40 = [
   ["path", { d: "M5 10V3", key: "cb8scm" }],
   ["path", { d: "M5 21v-7", key: "1w1uti" }]
 ];
-var SlidersVertical = createLucideIcon("sliders-vertical", __iconNode40);
+var SlidersVertical = createLucideIcon("sliders-vertical", __iconNode41);
 
 // node_modules/lucide-react/dist/esm/icons/sliders-horizontal.js
-var __iconNode41 = [
+var __iconNode42 = [
   ["path", { d: "M10 5H3", key: "1qgfaw" }],
   ["path", { d: "M12 19H3", key: "yhmn1j" }],
   ["path", { d: "M14 3v4", key: "1sua03" }],
@@ -17647,17 +17669,17 @@ var __iconNode41 = [
   ["path", { d: "M8 10v4", key: "tgpxqk" }],
   ["path", { d: "M8 12H3", key: "a7s4jb" }]
 ];
-var SlidersHorizontal = createLucideIcon("sliders-horizontal", __iconNode41);
+var SlidersHorizontal = createLucideIcon("sliders-horizontal", __iconNode42);
 
 // node_modules/lucide-react/dist/esm/icons/smartphone.js
-var __iconNode42 = [
+var __iconNode43 = [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
   ["path", { d: "M12 18h.01", key: "mhygvu" }]
 ];
-var Smartphone = createLucideIcon("smartphone", __iconNode42);
+var Smartphone = createLucideIcon("smartphone", __iconNode43);
 
 // node_modules/lucide-react/dist/esm/icons/sparkles.js
-var __iconNode43 = [
+var __iconNode44 = [
   [
     "path",
     {
@@ -17669,52 +17691,52 @@ var __iconNode43 = [
   ["path", { d: "M22 4h-4", key: "gwowj6" }],
   ["circle", { cx: "4", cy: "20", r: "2", key: "6kqj1y" }]
 ];
-var Sparkles = createLucideIcon("sparkles", __iconNode43);
+var Sparkles = createLucideIcon("sparkles", __iconNode44);
 
 // node_modules/lucide-react/dist/esm/icons/split.js
-var __iconNode44 = [
+var __iconNode45 = [
   ["path", { d: "M16 3h5v5", key: "1806ms" }],
   ["path", { d: "M8 3H3v5", key: "15dfkv" }],
   ["path", { d: "M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3", key: "1qrqzj" }],
   ["path", { d: "m15 9 6-6", key: "ko1vev" }]
 ];
-var Split = createLucideIcon("split", __iconNode44);
+var Split = createLucideIcon("split", __iconNode45);
 
 // node_modules/lucide-react/dist/esm/icons/square-plus.js
-var __iconNode45 = [
+var __iconNode46 = [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M8 12h8", key: "1wcyev" }],
   ["path", { d: "M12 8v8", key: "napkw2" }]
 ];
-var SquarePlus = createLucideIcon("square-plus", __iconNode45);
+var SquarePlus = createLucideIcon("square-plus", __iconNode46);
 
 // node_modules/lucide-react/dist/esm/icons/terminal.js
-var __iconNode46 = [
+var __iconNode47 = [
   ["path", { d: "M12 19h8", key: "baeox8" }],
   ["path", { d: "m4 17 6-6-6-6", key: "1yngyt" }]
 ];
-var Terminal = createLucideIcon("terminal", __iconNode46);
+var Terminal = createLucideIcon("terminal", __iconNode47);
 
 // node_modules/lucide-react/dist/esm/icons/trash-2.js
-var __iconNode47 = [
+var __iconNode48 = [
   ["path", { d: "M10 11v6", key: "nco0om" }],
   ["path", { d: "M14 11v6", key: "outv1u" }],
   ["path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", key: "miytrc" }],
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", key: "e791ji" }]
 ];
-var Trash2 = createLucideIcon("trash-2", __iconNode47);
+var Trash2 = createLucideIcon("trash-2", __iconNode48);
 
 // node_modules/lucide-react/dist/esm/icons/upload.js
-var __iconNode48 = [
+var __iconNode49 = [
   ["path", { d: "M12 3v12", key: "1x0j5s" }],
   ["path", { d: "m17 8-5-5-5 5", key: "7q97r8" }],
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }]
 ];
-var Upload = createLucideIcon("upload", __iconNode48);
+var Upload = createLucideIcon("upload", __iconNode49);
 
 // node_modules/lucide-react/dist/esm/icons/video.js
-var __iconNode49 = [
+var __iconNode50 = [
   [
     "path",
     {
@@ -17724,10 +17746,10 @@ var __iconNode49 = [
   ],
   ["rect", { x: "2", y: "6", width: "14", height: "12", rx: "2", key: "158x01" }]
 ];
-var Video = createLucideIcon("video", __iconNode49);
+var Video = createLucideIcon("video", __iconNode50);
 
 // node_modules/lucide-react/dist/esm/icons/volume-2.js
-var __iconNode50 = [
+var __iconNode51 = [
   [
     "path",
     {
@@ -17738,10 +17760,10 @@ var __iconNode50 = [
   ["path", { d: "M16 9a5 5 0 0 1 0 6", key: "1q6k2b" }],
   ["path", { d: "M19.364 18.364a9 9 0 0 0 0-12.728", key: "ijwkga" }]
 ];
-var Volume2 = createLucideIcon("volume-2", __iconNode50);
+var Volume2 = createLucideIcon("volume-2", __iconNode51);
 
 // node_modules/lucide-react/dist/esm/icons/wand-sparkles.js
-var __iconNode51 = [
+var __iconNode52 = [
   [
     "path",
     {
@@ -17757,26 +17779,26 @@ var __iconNode51 = [
   ["path", { d: "M21 16h-4", key: "1cnmox" }],
   ["path", { d: "M11 3H9", key: "1obp7u" }]
 ];
-var WandSparkles = createLucideIcon("wand-sparkles", __iconNode51);
+var WandSparkles = createLucideIcon("wand-sparkles", __iconNode52);
 
 // node_modules/lucide-react/dist/esm/icons/wifi.js
-var __iconNode52 = [
+var __iconNode53 = [
   ["path", { d: "M12 20h.01", key: "zekei9" }],
   ["path", { d: "M2 8.82a15 15 0 0 1 20 0", key: "dnpr2z" }],
   ["path", { d: "M5 12.859a10 10 0 0 1 14 0", key: "1x1e6c" }],
   ["path", { d: "M8.5 16.429a5 5 0 0 1 7 0", key: "1bycff" }]
 ];
-var Wifi = createLucideIcon("wifi", __iconNode52);
+var Wifi = createLucideIcon("wifi", __iconNode53);
 
 // node_modules/lucide-react/dist/esm/icons/x.js
-var __iconNode53 = [
+var __iconNode54 = [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ];
-var X = createLucideIcon("x", __iconNode53);
+var X = createLucideIcon("x", __iconNode54);
 
 // node_modules/lucide-react/dist/esm/icons/zap.js
-var __iconNode54 = [
+var __iconNode55 = [
   [
     "path",
     {
@@ -17785,7 +17807,7 @@ var __iconNode54 = [
     }
   ]
 ];
-var Zap = createLucideIcon("zap", __iconNode54);
+var Zap = createLucideIcon("zap", __iconNode55);
 
 // src/components/PlatformSwitcherBar.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -18875,7 +18897,9 @@ var TranscodeTab = ({
   onStartEncodeNow,
   onAddToQueue,
   isEncoding,
-  latestEncodedUrl
+  latestEncodedUrl,
+  latestEncodedName,
+  latestEncodedSizeBytes
 }) => {
   const [isPlaying, setIsPlaying] = (0, import_react6.useState)(false);
   const [splitPos, setSplitPos] = (0, import_react6.useState)(50);
@@ -19062,6 +19086,33 @@ var TranscodeTab = ({
         )
       ] })
     ] }),
+    latestEncodedUrl && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/60 border-2 border-emerald-500/50 shadow-xl space-y-2.5", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex flex-col sm:flex-row sm:items-center justify-between gap-3", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex items-center gap-3 min-w-0", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Check, { className: "w-6 h-6 stroke-[3]" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "min-w-0", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-xs font-bold text-white uppercase tracking-wider", children: "Transcoding Complete" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-semibold", children: "Ready to Save" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("p", { className: "text-xs text-slate-300 font-mono truncate max-w-[260px] sm:max-w-md mt-0.5", children: [
+            latestEncodedName || "encoded_video.mp4",
+            latestEncodedSizeBytes ? ` \xB7 ${(latestEncodedSizeBytes / 1024 / 1024).toFixed(2)} MB` : ""
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "flex items-center gap-2 shrink-0", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+        "a",
+        {
+          href: latestEncodedUrl,
+          download: latestEncodedName || "encoded_video.mp4",
+          className: "flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer",
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Download, { className: "w-4 h-4" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "Download Encoded Video" })
+          ]
+        }
+      ) })
+    ] }) }),
     source ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "space-y-2", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "relative rounded-2xl overflow-hidden bg-black aspect-video border border-white/10 shadow-xl group", children: [
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
         "video",
@@ -19279,6 +19330,22 @@ var TranscodeTab = ({
       )
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "space-y-2 pt-1", children: [
+      latestEncodedUrl && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+        "a",
+        {
+          href: latestEncodedUrl,
+          download: latestEncodedName || "encoded_video.mp4",
+          className: "w-full h-12 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 shadow-lg shadow-emerald-500/25 transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer",
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Download, { className: "w-4 h-4" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { children: [
+              "Download Encoded Video (",
+              latestEncodedSizeBytes ? `${(latestEncodedSizeBytes / 1024 / 1024).toFixed(2)} MB` : "MP4",
+              ")"
+            ] })
+          ]
+        }
+      ),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
         "button",
         {
@@ -19703,6 +19770,7 @@ var QueueTab = ({
   logs,
   isEncoding,
   onStartQueue,
+  onStartSingleJob,
   onPauseQueue,
   onResumeQueue,
   onRemoveItem,
@@ -19757,10 +19825,14 @@ var QueueTab = ({
           {
             type: "button",
             onClick: onStartQueue,
-            className: "flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow transition-all",
+            className: "flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-orange-500/20 transition-all hover:scale-[1.02] active:scale-95",
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Play, { className: "w-3.5 h-3.5 fill-current" }),
-              /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: "Start Queue" })
+              /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("span", { children: [
+                "Start Batch Queue (",
+                pendingItems.length,
+                ")"
+              ] })
             ]
           }
         ) : null,
@@ -19782,19 +19854,19 @@ var QueueTab = ({
         return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
           "div",
           {
-            className: `p-3.5 rounded-2xl border transition-all ${isCurrent ? "bg-amber-500/10 border-amber-500/40 shadow-md" : job.status === "completed" ? "bg-slate-900/40 border-slate-800" : "bg-slate-900/70 border-slate-800"}`,
+            className: `p-3.5 rounded-2xl border transition-all ${isCurrent ? "bg-amber-500/10 border-amber-500/40 shadow-md" : job.status === "completed" ? "bg-emerald-950/20 border-emerald-500/30" : "bg-slate-900/70 border-slate-800"}`,
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex items-start justify-between gap-3", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex items-start gap-2.5 min-w-0", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
                     "div",
                     {
-                      className: `w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${job.status === "completed" ? "bg-emerald-500/10 text-emerald-400" : isCurrent ? "bg-amber-500/20 text-amber-400" : "bg-slate-800 text-slate-400"}`,
-                      children: job.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(CircleCheck, { className: "w-5 h-5" }) : job.status === "encoding" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" }) : job.status === "paused" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Pause, { className: "w-4 h-4" }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Clock, { className: "w-4 h-4" })
+                      className: `w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${job.status === "completed" ? "bg-emerald-500/20 text-emerald-400" : isCurrent ? "bg-amber-500/20 text-amber-400" : job.status === "failed" ? "bg-rose-500/20 text-rose-400" : "bg-slate-800 text-slate-400"}`,
+                      children: job.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(CircleCheck, { className: "w-5 h-5" }) : job.status === "encoding" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" }) : job.status === "paused" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Pause, { className: "w-4 h-4" }) : job.status === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(CircleAlert, { className: "w-4 h-4" }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Clock, { className: "w-4 h-4" })
                     }
                   ),
                   /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "min-w-0 space-y-0.5", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h3", { className: "text-xs font-bold text-white truncate max-w-[210px]", children: job.outputName }),
+                    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h3", { className: "text-xs font-bold text-white truncate max-w-[210px] sm:max-w-md", children: job.outputName }),
                     /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("p", { className: "text-[11px] text-slate-400 truncate", children: [
                       job.preset.name,
                       " \xB7 ",
@@ -19810,23 +19882,74 @@ var QueueTab = ({
                         /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: "\xB7" }),
                         /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("span", { className: "text-emerald-400 font-semibold", children: [
                           "Output: ",
-                          (job.outputSizeBytes / 1024 / 1024).toFixed(1),
+                          (job.outputSizeBytes / 1024 / 1024).toFixed(2),
                           " MB"
                         ] })
-                      ] })
+                      ] }),
+                      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "capitalize px-1.5 py-0.2 rounded bg-white/5 text-slate-400", children: job.status })
                     ] })
                   ] })
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex items-center gap-1.5 shrink-0", children: [
-                  job.status === "completed" && job.outputBlobUrl && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+                  job.status === "waiting" && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
                     "button",
                     {
                       type: "button",
+                      disabled: isEncoding,
+                      onClick: () => onStartSingleJob ? onStartSingleJob(job) : onStartQueue(),
+                      className: `flex items-center gap-1.5 px-3 py-1.5 font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 ${isEncoding ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950"}`,
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Play, { className: "w-3.5 h-3.5 fill-current" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: "Start Encode" })
+                      ]
+                    }
+                  ),
+                  job.status === "completed" && job.outputBlobUrl && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+                    "a",
+                    {
+                      href: job.outputBlobUrl,
+                      download: job.outputName,
                       onClick: () => onDownloadOutput(job),
-                      className: "flex items-center gap-1 px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] rounded-xl shadow transition-colors",
+                      className: "flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer",
                       children: [
                         /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Download, { className: "w-3.5 h-3.5" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: "Save" })
+                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: "Download Video" })
+                      ]
+                    }
+                  ),
+                  job.status === "encoding" && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: onPauseQueue,
+                      className: "flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl border border-slate-700 transition-colors",
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Pause, { className: "w-3.5 h-3.5" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: "Pause" })
+                      ]
+                    }
+                  ),
+                  job.status === "paused" && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: onResumeQueue,
+                      className: "flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow transition-colors",
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Play, { className: "w-3.5 h-3.5 fill-current" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: "Resume" })
+                      ]
+                    }
+                  ),
+                  job.status === "failed" && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => onStartSingleJob ? onStartSingleJob(job) : onStartQueue(),
+                      className: "flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 font-semibold text-xs rounded-xl transition-all",
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(RefreshCw, { className: "w-3.5 h-3.5" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: "Retry" })
                       ]
                     }
                   ),
@@ -19836,6 +19959,7 @@ var QueueTab = ({
                       type: "button",
                       onClick: () => onRemoveItem(job.id),
                       className: "p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors",
+                      title: "Remove from queue",
                       children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(CircleX, { className: "w-4 h-4" })
                     }
                   )
@@ -19865,6 +19989,35 @@ var QueueTab = ({
                     style: { width: `${job.progressPercent}%` }
                   }
                 ) })
+              ] }),
+              job.status === "completed" && job.outputBlobUrl && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "mt-2.5 pt-2 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-500/30", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex items-center gap-2 min-w-0", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(CircleCheck, { className: "w-4 h-4 text-emerald-400 shrink-0" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "text-[11px] truncate", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "font-semibold text-emerald-300", children: "Ready for Download: " }),
+                    /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("span", { className: "text-slate-300 font-mono", children: [
+                      (job.outputSizeBytes / 1024 / 1024).toFixed(2),
+                      " MB"
+                    ] })
+                  ] })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+                  "a",
+                  {
+                    href: job.outputBlobUrl,
+                    download: job.outputName,
+                    onClick: () => onDownloadOutput(job),
+                    className: "flex items-center gap-1.5 px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] rounded-lg shadow transition-transform active:scale-95",
+                    children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Download, { className: "w-3 h-3" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: "Save to Disk" })
+                    ]
+                  }
+                )
+              ] }),
+              job.status === "failed" && job.errorMessage && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "mt-2 text-[11px] text-rose-400 font-mono bg-rose-500/10 p-2 rounded-lg border border-rose-500/20", children: [
+                "Error: ",
+                job.errorMessage
               ] })
             ]
           },
@@ -22853,6 +23006,7 @@ function App() {
   const [isEncoding, setIsEncoding] = (0, import_react12.useState)(false);
   const [activeJobId, setActiveJobId] = (0, import_react12.useState)(null);
   const [latestEncodedUrl, setLatestEncodedUrl] = (0, import_react12.useState)(void 0);
+  const [latestEncodedJob, setLatestEncodedJob] = (0, import_react12.useState)(null);
   (0, import_react12.useEffect)(() => {
     let isCancelled = false;
     const loadInitialSample = async () => {
@@ -22968,21 +23122,31 @@ function App() {
           setLogs((l) => [...l, prog.logEntry]);
         }
       });
+      const completedJob = {
+        ...job,
+        status: "completed",
+        progressPercent: 100,
+        outputSizeBytes: result.sizeBytes,
+        outputBlobUrl: result.url,
+        completedAt: Date.now()
+      };
       setQueue(
-        (prev) => prev.map((q) => {
-          if (q.id !== job.id) return q;
-          return {
-            ...q,
-            status: "completed",
-            progressPercent: 100,
-            outputSizeBytes: result.sizeBytes,
-            outputBlobUrl: result.url,
-            completedAt: Date.now()
-          };
-        })
+        (prev) => prev.map((q) => q.id === job.id ? completedJob : q)
       );
       setLatestEncodedUrl(result.url);
-      addLog(`[queue] Job "${job.outputName}" completed successfully! Ready for playback and export.`, "notice");
+      setLatestEncodedJob(completedJob);
+      addLog(`[queue] Job "${job.outputName}" completed successfully! File ready for download.`, "notice");
+      try {
+        const dlLink = document.createElement("a");
+        dlLink.href = result.url;
+        dlLink.download = job.outputName;
+        document.body.appendChild(dlLink);
+        dlLink.click();
+        document.body.removeChild(dlLink);
+        addLog(`[download] Automatic download started for "${job.outputName}"`, "info");
+      } catch (dlErr) {
+        console.warn("Auto download note:", dlErr);
+      }
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const osc = audioCtx.createOscillator();
@@ -23011,19 +23175,20 @@ function App() {
     }
   };
   const handleStartEncodeNow = async () => {
-    let jobToRun = queue.find((q) => q.status === "waiting");
-    if (!jobToRun) {
-      jobToRun = handleAddToQueue() || void 0;
-    }
-    if (jobToRun) {
+    if (!source || isEncoding) return;
+    const newJob = handleAddToQueue();
+    if (newJob) {
       setActiveTab("queue");
-      await runJob(jobToRun);
+      await runJob(newJob);
     }
   };
   const handleStartQueue = async () => {
-    const next = queue.find((q) => q.status === "waiting");
-    if (next) {
-      await runJob(next);
+    if (isEncoding) return;
+    const waiting = queue.filter((q) => q.status === "waiting");
+    if (waiting.length > 0) {
+      for (const job of waiting) {
+        await runJob(job);
+      }
     }
   };
   const handlePauseActive = () => {
@@ -23085,7 +23250,9 @@ function App() {
             onStartEncodeNow: handleStartEncodeNow,
             onAddToQueue: handleAddToQueue,
             isEncoding,
-            latestEncodedUrl
+            latestEncodedUrl,
+            latestEncodedName: latestEncodedJob?.outputName,
+            latestEncodedSizeBytes: latestEncodedJob?.outputSizeBytes
           }
         );
       case "presets":
@@ -23110,6 +23277,7 @@ function App() {
             logs,
             isEncoding,
             onStartQueue: handleStartQueue,
+            onStartSingleJob: (job) => runJob(job),
             onPauseQueue: handlePauseActive,
             onResumeQueue: handleResumeActive,
             onRemoveItem: handleRemoveQueueItem,
@@ -23272,6 +23440,7 @@ lucide-react/dist/esm/icons/check.js:
 lucide-react/dist/esm/icons/chevron-down.js:
 lucide-react/dist/esm/icons/chevron-right.js:
 lucide-react/dist/esm/icons/chevron-up.js:
+lucide-react/dist/esm/icons/circle-alert.js:
 lucide-react/dist/esm/icons/circle-check-big.js:
 lucide-react/dist/esm/icons/circle-check.js:
 lucide-react/dist/esm/icons/circle-plus.js:

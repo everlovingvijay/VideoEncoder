@@ -13,6 +13,7 @@ import {
   FileVideo,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
 } from 'lucide-react';
 
 interface QueueTabProps {
@@ -20,6 +21,7 @@ interface QueueTabProps {
   logs: LogEntry[];
   isEncoding: boolean;
   onStartQueue: () => void;
+  onStartSingleJob?: (job: QueueItem) => void;
   onPauseQueue: () => void;
   onResumeQueue: () => void;
   onRemoveItem: (id: string) => void;
@@ -32,6 +34,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
   logs,
   isEncoding,
   onStartQueue,
+  onStartSingleJob,
   onPauseQueue,
   onResumeQueue,
   onRemoveItem,
@@ -94,10 +97,10 @@ export const QueueTab: React.FC<QueueTabProps> = ({
             <button
               type="button"
               onClick={onStartQueue}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-orange-500/20 transition-all hover:scale-[1.02] active:scale-95"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Start Queue</span>
+              <span>Start Batch Queue ({pendingItems.length})</span>
             </button>
           ) : null}
 
@@ -125,7 +128,7 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                 isCurrent
                   ? 'bg-amber-500/10 border-amber-500/40 shadow-md'
                   : job.status === 'completed'
-                  ? 'bg-slate-900/40 border-slate-800'
+                  ? 'bg-emerald-950/20 border-emerald-500/30'
                   : 'bg-slate-900/70 border-slate-800'
               }`}
             >
@@ -134,9 +137,11 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                   <div
                     className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                       job.status === 'completed'
-                        ? 'bg-emerald-500/10 text-emerald-400'
+                        ? 'bg-emerald-500/20 text-emerald-400'
                         : isCurrent
                         ? 'bg-amber-500/20 text-amber-400'
+                        : job.status === 'failed'
+                        ? 'bg-rose-500/20 text-rose-400'
                         : 'bg-slate-800 text-slate-400'
                     }`}
                   >
@@ -146,13 +151,15 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                       <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
                     ) : job.status === 'paused' ? (
                       <Pause className="w-4 h-4" />
+                    ) : job.status === 'failed' ? (
+                      <AlertCircle className="w-4 h-4" />
                     ) : (
                       <Clock className="w-4 h-4" />
                     )}
                   </div>
 
                   <div className="min-w-0 space-y-0.5">
-                    <h3 className="text-xs font-bold text-white truncate max-w-[210px]">
+                    <h3 className="text-xs font-bold text-white truncate max-w-[210px] sm:max-w-md">
                       {job.outputName}
                     </h3>
                     <p className="text-[11px] text-slate-400 truncate">
@@ -164,31 +171,91 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                         <>
                           <span>·</span>
                           <span className="text-emerald-400 font-semibold">
-                            Output: {(job.outputSizeBytes / 1024 / 1024).toFixed(1)} MB
+                            Output: {(job.outputSizeBytes / 1024 / 1024).toFixed(2)} MB
                           </span>
                         </>
                       )}
+                      <span className="capitalize px-1.5 py-0.2 rounded bg-white/5 text-slate-400">
+                        {job.status}
+                      </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Right Action buttons */}
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {job.status === 'completed' && job.outputBlobUrl && (
+                  {/* Status: Waiting -> Start Encode button */}
+                  {job.status === 'waiting' && (
                     <button
                       type="button"
-                      onClick={() => onDownloadOutput(job)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] rounded-xl shadow transition-colors"
+                      disabled={isEncoding}
+                      onClick={() => (onStartSingleJob ? onStartSingleJob(job) : onStartQueue())}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 ${
+                        isEncoding
+                          ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                          : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950'
+                      }`}
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Save</span>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Start Encode</span>
                     </button>
                   )}
 
+                  {/* Status: Completed -> Download Video button */}
+                  {job.status === 'completed' && job.outputBlobUrl && (
+                    <a
+                      href={job.outputBlobUrl}
+                      download={job.outputName}
+                      onClick={() => onDownloadOutput(job)}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Video</span>
+                    </a>
+                  )}
+
+                  {/* Status: Encoding -> Pause button */}
+                  {job.status === 'encoding' && (
+                    <button
+                      type="button"
+                      onClick={onPauseQueue}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl border border-slate-700 transition-colors"
+                    >
+                      <Pause className="w-3.5 h-3.5" />
+                      <span>Pause</span>
+                    </button>
+                  )}
+
+                  {/* Status: Paused -> Resume button */}
+                  {job.status === 'paused' && (
+                    <button
+                      type="button"
+                      onClick={onResumeQueue}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow transition-colors"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Resume</span>
+                    </button>
+                  )}
+
+                  {/* Status: Failed -> Retry button */}
+                  {job.status === 'failed' && (
+                    <button
+                      type="button"
+                      onClick={() => (onStartSingleJob ? onStartSingleJob(job) : onStartQueue())}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 font-semibold text-xs rounded-xl transition-all"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Retry</span>
+                    </button>
+                  )}
+
+                  {/* Cancel / Remove Button */}
                   <button
                     type="button"
                     onClick={() => onRemoveItem(job.id)}
                     className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                    title="Remove from queue"
                   >
                     <XCircle className="w-4 h-4" />
                   </button>
@@ -212,6 +279,37 @@ export const QueueTab: React.FC<QueueTabProps> = ({
                       style={{ width: `${job.progressPercent}%` }}
                     />
                   </div>
+                </div>
+              )}
+
+              {/* Explicit Download Banner for Completed Job */}
+              {job.status === 'completed' && job.outputBlobUrl && (
+                <div className="mt-2.5 pt-2 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-500/30">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="text-[11px] truncate">
+                      <span className="font-semibold text-emerald-300">Ready for Download: </span>
+                      <span className="text-slate-300 font-mono">
+                        {(job.outputSizeBytes / 1024 / 1024).toFixed(2)} MB
+                      </span>
+                    </div>
+                  </div>
+                  <a
+                    href={job.outputBlobUrl}
+                    download={job.outputName}
+                    onClick={() => onDownloadOutput(job)}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] rounded-lg shadow transition-transform active:scale-95"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Save to Disk</span>
+                  </a>
+                </div>
+              )}
+
+              {/* Error message if failed */}
+              {job.status === 'failed' && job.errorMessage && (
+                <div className="mt-2 text-[11px] text-rose-400 font-mono bg-rose-500/10 p-2 rounded-lg border border-rose-500/20">
+                  Error: {job.errorMessage}
                 </div>
               )}
             </div>
