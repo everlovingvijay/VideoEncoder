@@ -23,6 +23,7 @@ import { TranscodeTab } from './components/tabs/TranscodeTab';
 import { PresetsTab } from './components/tabs/PresetsTab';
 import { QueueTab } from './components/tabs/QueueTab';
 import { VideoStudioTab } from './components/tabs/VideoStudioTab';
+import { MetadataStudioTab } from './components/tabs/MetadataStudioTab';
 import { NativeCodeTab } from './components/tabs/NativeCodeTab';
 import { RemoteServerTab } from './components/tabs/RemoteServerTab';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
@@ -387,6 +388,30 @@ export default function App() {
             preset={activePreset}
             source={source}
             onUpdatePreset={(updated) => setActivePreset(updated)}
+          />
+        );
+      case 'metadata':
+        return (
+          <MetadataStudioTab
+            source={source}
+            onSelectSource={(src) => setSource(src)}
+            onEnqueueLosslessExport={(blob, name) => {
+              const url = URL.createObjectURL(blob);
+              setSource({
+                id: `lossless-${Date.now()}`,
+                name,
+                sizeBytes: blob.size,
+                durationSeconds: source?.durationSeconds || 10,
+                width: source?.width || 1920,
+                height: source?.height || 1080,
+                fps: source?.fps || 30,
+                bitrateKbps: source?.bitrateKbps || 6000,
+                codec: blob.type || 'video/mp4',
+                url,
+                thumbnailUrl: '',
+              });
+              setActiveTab('transcode');
+            }}
           />
         );
       case 'code':

@@ -76,6 +76,17 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
         </button>
         <button
           type="button"
+          onClick={() => onChangeTab('metadata')}
+          className={`hover:text-white transition-colors whitespace-nowrap shrink-0 pb-0.5 ${
+            activeTab === 'metadata'
+              ? 'text-cyan-400 font-bold border-b-2 border-cyan-400'
+              : ''
+          }`}
+        >
+          EXIF Studio
+        </button>
+        <button
+          type="button"
           onClick={() => onChangeTab('code')}
           className={`hover:text-white transition-colors whitespace-nowrap shrink-0 pb-0.5 ${
             activeTab === 'code'

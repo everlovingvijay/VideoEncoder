@@ -1,7 +1,7 @@
 import React from 'react';
-import { Film, SlidersHorizontal, Layers, Sliders, Code2, Server } from 'lucide-react';
+import { Film, SlidersHorizontal, Layers, Sliders, Tag, Code2, Server } from 'lucide-react';
 
-export type MainTabType = 'transcode' | 'presets' | 'queue' | 'studio' | 'code' | 'remote';
+export type MainTabType = 'transcode' | 'presets' | 'queue' | 'studio' | 'metadata' | 'code' | 'remote';
 
 interface IOSBottomBarProps {
   activeTab: MainTabType;
@@ -26,13 +26,14 @@ export const IOSBottomBar: React.FC<IOSBottomBarProps> = ({
     { id: 'presets', label: 'Presets', icon: SlidersHorizontal },
     { id: 'queue', label: 'Queue', icon: Layers, badge: queueBadgeCount },
     { id: 'studio', label: 'Studio', icon: Sliders },
-    { id: 'code', label: 'Swift Code', icon: Code2 },
+    { id: 'metadata', label: 'EXIF', icon: Tag },
+    { id: 'code', label: 'Swift', icon: Code2 },
     { id: 'remote', label: 'Remote', icon: Server },
   ];
 
   return (
     <nav className="shrink-0 bg-[#0c0d14]/95 backdrop-blur-xl border-t border-white/10 z-30 select-none pb-safe">
-      <div className="grid grid-cols-6 h-14 items-center">
+      <div className="grid grid-cols-7 h-14 items-center">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;

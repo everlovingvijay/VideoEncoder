@@ -112,10 +112,37 @@ export class VideoTranscoderService {
       let isAborted = false;
       let isProcessingFrame = false;
 
+      // Handle fresh blob recreation if File object exists
+      let freshBlobUrl: string | null = null;
+      let srcUrl = job.source.url;
+      if (job.source.file) {
+        try {
+          freshBlobUrl = URL.createObjectURL(job.source.file);
+          srcUrl = freshBlobUrl;
+        } catch (e) {
+          srcUrl = job.source.url;
+        }
+      }
+
       const video = document.createElement('video');
       video.muted = true;
+      video.defaultMuted = true;
+      video.setAttribute('muted', '');
+      video.setAttribute('playsinline', '');
       video.playsInline = true;
-      video.crossOrigin = 'anonymous';
+      video.preload = 'auto';
+
+      // DO NOT set crossOrigin for blob: or data: URLs to avoid browser CORS errors
+      if (srcUrl.startsWith('http://') || srcUrl.startsWith('https://')) {
+        try {
+          const urlObj = new URL(srcUrl, typeof window !== 'undefined' ? window.location.href : undefined);
+          if (typeof window !== 'undefined' && urlObj.origin !== window.location.origin) {
+            video.crossOrigin = 'anonymous';
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
 
       const preset = job.preset;
       const isPortrait = preset.dimensions.height > preset.dimensions.width;
@@ -132,6 +159,7 @@ export class VideoTranscoderService {
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
       if (!ctx) {
+        if (freshBlobUrl) URL.revokeObjectURL(freshBlobUrl);
         reject(new Error('Canvas 2D context creation failed'));
         return;
       }
@@ -149,38 +177,11 @@ export class VideoTranscoderService {
       );
       const mimeType = mimeResolution.mimeType;
 
-      // 2. Audio Pipeline Setup
-      let audioSession: { audioTracks: MediaStreamTrack[]; cleanup: () => void } | null = null;
-      try {
-        audioSession = audioPipeline.setupAudioGraph(video, {
-          gainDb: preset.audio[0]?.gainDb,
-          drc: preset.audio[0]?.drc,
-        });
-      } catch (err) {
-        console.warn('Audio setup deferred:', err);
-      }
-
       const canvasStream = canvas.captureStream(targetFps);
-      const outputStream = new MediaStream([
-        ...canvasStream.getVideoTracks(),
-        ...(audioSession?.audioTracks || []),
-      ]);
 
-      let recorder: MediaRecorder;
-      try {
-        recorder = new MediaRecorder(outputStream, {
-          mimeType,
-          videoBitsPerSecond: targetBitrate,
-        });
-      } catch (recErr) {
-        // Fallback to default MediaRecorder without explicit mimeType
-        recorder = new MediaRecorder(outputStream);
-      }
-
+      let recorder: MediaRecorder | null = null;
+      let audioSession: { audioTracks: MediaStreamTrack[]; cleanup: () => void } | null = null;
       const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
 
       const startTime = performance.now();
       let framesEncoded = 0;
@@ -192,10 +193,11 @@ export class VideoTranscoderService {
         abort: () => {
           isAborted = true;
           try {
-            if (recorder.state !== 'inactive') recorder.stop();
+            if (recorder && recorder.state !== 'inactive') recorder.stop();
             video.pause();
             video.src = '';
             audioSession?.cleanup();
+            if (freshBlobUrl) URL.revokeObjectURL(freshBlobUrl);
           } catch (e) {
             console.error(e);
           }
@@ -204,12 +206,12 @@ export class VideoTranscoderService {
         pause: () => {
           isPaused = true;
           video.pause();
-          if (recorder.state === 'recording') recorder.pause();
+          if (recorder && recorder.state === 'recording') recorder.pause();
         },
         resume: () => {
           isPaused = false;
-          video.play();
-          if (recorder.state === 'paused') recorder.resume();
+          video.play().catch(() => {});
+          if (recorder && recorder.state === 'paused') recorder.resume();
         },
       });
 
@@ -276,6 +278,44 @@ export class VideoTranscoderService {
         hasStarted = true;
         totalDuration = video.duration || totalDuration;
         totalFrames = Math.max(1, Math.round(totalDuration * targetFps));
+
+        // Draw initial frame to canvas so captureStream has valid buffer dimensions
+        try {
+          ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+        } catch (drawErr) {
+          console.warn('Initial frame draw note:', drawErr);
+        }
+
+        // Setup Audio Pipeline after video has loaded metadata
+        try {
+          audioSession = audioPipeline.setupAudioGraph(video, {
+            gainDb: preset.audio[0]?.gainDb,
+            drc: preset.audio[0]?.drc,
+          });
+        } catch (err) {
+          console.warn('Audio setup deferred or skipped:', err);
+        }
+
+        const outputStream = new MediaStream([
+          ...canvasStream.getVideoTracks(),
+          ...(audioSession?.audioTracks || []),
+        ]);
+
+        try {
+          recorder = new MediaRecorder(outputStream, {
+            mimeType,
+            videoBitsPerSecond: targetBitrate,
+          });
+        } catch (recErr) {
+          recorder = new MediaRecorder(outputStream);
+        }
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = handleRecorderStop;
+
         try {
           if (recorder.state === 'inactive') {
             recorder.start(1000); // 1s slice
@@ -283,9 +323,65 @@ export class VideoTranscoderService {
         } catch (err) {
           console.warn('Recorder start notice:', err);
         }
+
         video.currentTime = 0;
-        video.play().catch((err) => console.warn('Autoplay caught:', err));
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.warn('Video play notice:', err);
+          });
+        }
         drawFrame();
+      };
+
+      const handleRecorderStop = async () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        const outputUrl = URL.createObjectURL(blob);
+        this.activeControllers.delete(job.id);
+        cleanup();
+
+        // Post-Export Validation Pass
+        emitLog(`[validator] Validating exported container integrity & track presence...`);
+        let validationResult: ValidationResult | undefined;
+        try {
+          validationResult = await exportValidator.validateExport(blob, totalDuration);
+          if (validationResult.valid) {
+            emitLog(
+              `[validator] Verified: playable duration ${validationResult.durationSeconds.toFixed(1)}s, ${validationResult.width}x${validationResult.height}, decodable: true`,
+              'notice'
+            );
+          } else {
+            emitLog(`[validator] Validation warning: ${validationResult.issues.join('; ')}`, 'warning');
+          }
+        } catch (valErr) {
+          console.warn('Export validation check non-blocking error:', valErr);
+        }
+
+        onProgress({
+          percent: 100,
+          currentFrame: framesEncoded,
+          totalFrames,
+          fps: Math.round((framesEncoded / Math.max(0.1, (performance.now() - startTime) / 1000)) * 10) / 10,
+          etaSeconds: 0,
+          elapsedSeconds: Math.round((performance.now() - startTime) / 1000),
+          logEntry: {
+            id: `log-done-${Date.now()}`,
+            timestamp: new Date().toLocaleTimeString(),
+            level: 'notice',
+            message: `[core 2.0] Work done! Encoded size: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${Math.round((blob.size * 8) / totalDuration / 1000)} kbps)`,
+          },
+        });
+
+        resolve({
+          blob,
+          url: outputUrl,
+          sizeBytes: blob.size,
+          validation: validationResult,
+        });
+      };
+
+      video.onloadedmetadata = () => {
+        totalDuration = video.duration || totalDuration;
       };
 
       video.onloadeddata = startEncoding;
@@ -303,7 +399,9 @@ export class VideoTranscoderService {
 
         if (video.ended || video.currentTime >= totalDuration - 0.05) {
           emitLog(`[core 2.0] Transcode frame processing complete: ${framesEncoded} frames rendered.`, 'notice');
-          recorder.stop();
+          if (recorder && recorder.state !== 'inactive') {
+            recorder.stop();
+          }
           return;
         }
 
@@ -385,69 +483,44 @@ export class VideoTranscoderService {
         requestAnimationFrame(drawFrame);
       };
 
-      recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: mimeType });
-        const outputUrl = URL.createObjectURL(blob);
-        this.activeControllers.delete(job.id);
-        cleanup();
-
-        // 3. Post-Export Validation Pass
-        emitLog(`[validator] Validating exported container integrity & track presence...`);
-        let validationResult: ValidationResult | undefined;
-        try {
-          validationResult = await exportValidator.validateExport(blob, totalDuration);
-          if (validationResult.valid) {
-            emitLog(
-              `[validator] Verified: playable duration ${validationResult.durationSeconds.toFixed(1)}s, ${validationResult.width}x${validationResult.height}, decodable: true`,
-              'notice'
-            );
-          } else {
-            emitLog(`[validator] Validation warning: ${validationResult.issues.join('; ')}`, 'warning');
-          }
-        } catch (valErr) {
-          console.warn('Export validation check non-blocking error:', valErr);
-        }
-
-        onProgress({
-          percent: 100,
-          currentFrame: framesEncoded,
-          totalFrames,
-          fps: Math.round((framesEncoded / Math.max(0.1, (performance.now() - startTime) / 1000)) * 10) / 10,
-          etaSeconds: 0,
-          elapsedSeconds: Math.round((performance.now() - startTime) / 1000),
-          logEntry: {
-            id: `log-done-${Date.now()}`,
-            timestamp: new Date().toLocaleTimeString(),
-            level: 'notice',
-            message: `[core 2.0] Work done! Encoded size: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${Math.round((blob.size * 8) / totalDuration / 1000)} kbps)`,
-          },
-        });
-
-        resolve({
-          blob,
-          url: outputUrl,
-          sizeBytes: blob.size,
-          validation: validationResult,
-        });
-      };
-
       const cleanup = () => {
         try {
           video.pause();
           video.src = '';
           audioSession?.cleanup();
+          if (freshBlobUrl) {
+            URL.revokeObjectURL(freshBlobUrl);
+          }
         } catch (e) {
           // ignore
         }
       };
 
       video.onerror = () => {
+        const err = video.error;
+        let codeStr = 'Unknown';
+        if (err) {
+          switch (err.code) {
+            case 1: codeStr = 'MEDIA_ERR_ABORTED'; break;
+            case 2: codeStr = 'MEDIA_ERR_NETWORK'; break;
+            case 3: codeStr = 'MEDIA_ERR_DECODE'; break;
+            case 4: codeStr = 'MEDIA_ERR_SRC_NOT_SUPPORTED'; break;
+            default: codeStr = `CODE_${err.code}`;
+          }
+        }
+        const errorMsg = `Video playback error (${codeStr}): ${err?.message || 'Format or codec not supported by browser'}`;
+        emitLog(`[error] ${errorMsg}`, 'error');
         this.activeControllers.delete(job.id);
         cleanup();
-        reject(new Error('Video playback error during transcoding stream.'));
+        reject(new Error(errorMsg));
       };
 
-      video.src = job.source.url;
+      video.src = srcUrl;
+      try {
+        video.load();
+      } catch (loadErr) {
+        console.warn('video.load() notice:', loadErr);
+      }
     });
   }
 
