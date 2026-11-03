@@ -777,7 +777,7 @@ var require_react = __commonJS({
 var require_react_dom_production = __commonJS({
   "node_modules/react-dom/cjs/react-dom.production.js"(exports) {
     "use strict";
-    var React10 = require_react();
+    var React11 = require_react();
     function formatProdErrorMessage(code) {
       var url = "https://react.dev/errors/" + code;
       if (1 < arguments.length) {
@@ -819,7 +819,7 @@ var require_react_dom_production = __commonJS({
         implementation
       };
     }
-    var ReactSharedInternals = React10.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+    var ReactSharedInternals = React11.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
     function getCrossOriginStringAs(as, input) {
       if ("font" === as) return "";
       if ("string" === typeof input)
@@ -961,7 +961,7 @@ var require_react_dom_client_production = __commonJS({
   "node_modules/react-dom/cjs/react-dom-client.production.js"(exports) {
     "use strict";
     var Scheduler = require_scheduler();
-    var React10 = require_react();
+    var React11 = require_react();
     var ReactDOM = require_react_dom();
     function formatProdErrorMessage(code) {
       var url = "https://react.dev/errors/" + code;
@@ -1254,7 +1254,7 @@ var require_react_dom_client_production = __commonJS({
       return null;
     }
     var isArrayImpl = Array.isArray;
-    var ReactSharedInternals = React10.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+    var ReactSharedInternals = React11.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
     var ReactDOMSharedInternals = ReactDOM.__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
     var sharedNotPendingObject = {
       pending: false,
@@ -14403,7 +14403,7 @@ var require_react_dom_client_production = __commonJS({
         0 === i && attemptExplicitHydrationTarget(target);
       }
     };
-    var isomorphicReactPackageVersion$jscomp$inline_2043 = React10.version;
+    var isomorphicReactPackageVersion$jscomp$inline_2043 = React11.version;
     if ("19.3.1" !== isomorphicReactPackageVersion$jscomp$inline_2043)
       throw Error(
         formatProdErrorMessage(
@@ -14574,7 +14574,7 @@ var require_jsx_runtime = __commonJS({
 var import_client = __toESM(require_client(), 1);
 
 // src/App.tsx
-var import_react12 = __toESM(require_react(), 1);
+var import_react13 = __toESM(require_react(), 1);
 
 // src/services/enhancementEngine.ts
 var DEFAULT_ENHANCEMENT = {
@@ -16907,10 +16907,32 @@ var VideoTranscoderService = class {
       let isPaused = false;
       let isAborted = false;
       let isProcessingFrame = false;
+      let freshBlobUrl = null;
+      let srcUrl = job.source.url;
+      if (job.source.file) {
+        try {
+          freshBlobUrl = URL.createObjectURL(job.source.file);
+          srcUrl = freshBlobUrl;
+        } catch (e) {
+          srcUrl = job.source.url;
+        }
+      }
       const video = document.createElement("video");
       video.muted = true;
+      video.defaultMuted = true;
+      video.setAttribute("muted", "");
+      video.setAttribute("playsinline", "");
       video.playsInline = true;
-      video.crossOrigin = "anonymous";
+      video.preload = "auto";
+      if (srcUrl.startsWith("http://") || srcUrl.startsWith("https://")) {
+        try {
+          const urlObj = new URL(srcUrl, typeof window !== "undefined" ? window.location.href : void 0);
+          if (typeof window !== "undefined" && urlObj.origin !== window.location.origin) {
+            video.crossOrigin = "anonymous";
+          }
+        } catch (e) {
+        }
+      }
       const preset = job.preset;
       const isPortrait = preset.dimensions.height > preset.dimensions.width;
       const targetWidth = isPortrait ? Math.min(preset.dimensions.width, 1080) : Math.min(preset.dimensions.width, 1920);
@@ -16920,6 +16942,7 @@ var VideoTranscoderService = class {
       canvas.height = targetHeight;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
       if (!ctx) {
+        if (freshBlobUrl) URL.revokeObjectURL(freshBlobUrl);
         reject(new Error("Canvas 2D context creation failed"));
         return;
       }
@@ -16930,33 +16953,10 @@ var VideoTranscoderService = class {
         preset.container
       );
       const mimeType = mimeResolution.mimeType;
-      let audioSession = null;
-      try {
-        audioSession = audioPipeline.setupAudioGraph(video, {
-          gainDb: preset.audio[0]?.gainDb,
-          drc: preset.audio[0]?.drc
-        });
-      } catch (err) {
-        console.warn("Audio setup deferred:", err);
-      }
       const canvasStream = canvas.captureStream(targetFps);
-      const outputStream = new MediaStream([
-        ...canvasStream.getVideoTracks(),
-        ...audioSession?.audioTracks || []
-      ]);
-      let recorder;
-      try {
-        recorder = new MediaRecorder(outputStream, {
-          mimeType,
-          videoBitsPerSecond: targetBitrate
-        });
-      } catch (recErr) {
-        recorder = new MediaRecorder(outputStream);
-      }
+      let recorder = null;
+      let audioSession = null;
       const chunks = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
       const startTime = performance.now();
       let framesEncoded = 0;
       let totalDuration = job.source.durationSeconds || 10;
@@ -16965,10 +16965,11 @@ var VideoTranscoderService = class {
         abort: () => {
           isAborted = true;
           try {
-            if (recorder.state !== "inactive") recorder.stop();
+            if (recorder && recorder.state !== "inactive") recorder.stop();
             video.pause();
             video.src = "";
             audioSession?.cleanup();
+            if (freshBlobUrl) URL.revokeObjectURL(freshBlobUrl);
           } catch (e) {
             console.error(e);
           }
@@ -16977,12 +16978,13 @@ var VideoTranscoderService = class {
         pause: () => {
           isPaused = true;
           video.pause();
-          if (recorder.state === "recording") recorder.pause();
+          if (recorder && recorder.state === "recording") recorder.pause();
         },
         resume: () => {
           isPaused = false;
-          video.play();
-          if (recorder.state === "paused") recorder.resume();
+          video.play().catch(() => {
+          });
+          if (recorder && recorder.state === "paused") recorder.resume();
         }
       });
       const emitLog = (msg, level = "info") => {
@@ -17042,6 +17044,35 @@ var VideoTranscoderService = class {
         totalDuration = video.duration || totalDuration;
         totalFrames = Math.max(1, Math.round(totalDuration * targetFps));
         try {
+          ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+        } catch (drawErr) {
+          console.warn("Initial frame draw note:", drawErr);
+        }
+        try {
+          audioSession = audioPipeline.setupAudioGraph(video, {
+            gainDb: preset.audio[0]?.gainDb,
+            drc: preset.audio[0]?.drc
+          });
+        } catch (err) {
+          console.warn("Audio setup deferred or skipped:", err);
+        }
+        const outputStream = new MediaStream([
+          ...canvasStream.getVideoTracks(),
+          ...audioSession?.audioTracks || []
+        ]);
+        try {
+          recorder = new MediaRecorder(outputStream, {
+            mimeType,
+            videoBitsPerSecond: targetBitrate
+          });
+        } catch (recErr) {
+          recorder = new MediaRecorder(outputStream);
+        }
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+        recorder.onstop = handleRecorderStop;
+        try {
           if (recorder.state === "inactive") {
             recorder.start(1e3);
           }
@@ -17049,8 +17080,57 @@ var VideoTranscoderService = class {
           console.warn("Recorder start notice:", err);
         }
         video.currentTime = 0;
-        video.play().catch((err) => console.warn("Autoplay caught:", err));
+        const playPromise = video.play();
+        if (playPromise !== void 0) {
+          playPromise.catch((err) => {
+            console.warn("Video play notice:", err);
+          });
+        }
         drawFrame();
+      };
+      const handleRecorderStop = async () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        const outputUrl = URL.createObjectURL(blob);
+        this.activeControllers.delete(job.id);
+        cleanup();
+        emitLog(`[validator] Validating exported container integrity & track presence...`);
+        let validationResult;
+        try {
+          validationResult = await exportValidator.validateExport(blob, totalDuration);
+          if (validationResult.valid) {
+            emitLog(
+              `[validator] Verified: playable duration ${validationResult.durationSeconds.toFixed(1)}s, ${validationResult.width}x${validationResult.height}, decodable: true`,
+              "notice"
+            );
+          } else {
+            emitLog(`[validator] Validation warning: ${validationResult.issues.join("; ")}`, "warning");
+          }
+        } catch (valErr) {
+          console.warn("Export validation check non-blocking error:", valErr);
+        }
+        onProgress({
+          percent: 100,
+          currentFrame: framesEncoded,
+          totalFrames,
+          fps: Math.round(framesEncoded / Math.max(0.1, (performance.now() - startTime) / 1e3) * 10) / 10,
+          etaSeconds: 0,
+          elapsedSeconds: Math.round((performance.now() - startTime) / 1e3),
+          logEntry: {
+            id: `log-done-${Date.now()}`,
+            timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString(),
+            level: "notice",
+            message: `[core 2.0] Work done! Encoded size: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${Math.round(blob.size * 8 / totalDuration / 1e3)} kbps)`
+          }
+        });
+        resolve({
+          blob,
+          url: outputUrl,
+          sizeBytes: blob.size,
+          validation: validationResult
+        });
+      };
+      video.onloadedmetadata = () => {
+        totalDuration = video.duration || totalDuration;
       };
       video.onloadeddata = startEncoding;
       video.oncanplay = startEncoding;
@@ -17065,7 +17145,9 @@ var VideoTranscoderService = class {
         }
         if (video.ended || video.currentTime >= totalDuration - 0.05) {
           emitLog(`[core 2.0] Transcode frame processing complete: ${framesEncoded} frames rendered.`, "notice");
-          recorder.stop();
+          if (recorder && recorder.state !== "inactive") {
+            recorder.stop();
+          }
           return;
         }
         if (isProcessingFrame) {
@@ -17129,61 +17211,50 @@ var VideoTranscoderService = class {
         }
         requestAnimationFrame(drawFrame);
       };
-      recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: mimeType });
-        const outputUrl = URL.createObjectURL(blob);
-        this.activeControllers.delete(job.id);
-        cleanup();
-        emitLog(`[validator] Validating exported container integrity & track presence...`);
-        let validationResult;
-        try {
-          validationResult = await exportValidator.validateExport(blob, totalDuration);
-          if (validationResult.valid) {
-            emitLog(
-              `[validator] Verified: playable duration ${validationResult.durationSeconds.toFixed(1)}s, ${validationResult.width}x${validationResult.height}, decodable: true`,
-              "notice"
-            );
-          } else {
-            emitLog(`[validator] Validation warning: ${validationResult.issues.join("; ")}`, "warning");
-          }
-        } catch (valErr) {
-          console.warn("Export validation check non-blocking error:", valErr);
-        }
-        onProgress({
-          percent: 100,
-          currentFrame: framesEncoded,
-          totalFrames,
-          fps: Math.round(framesEncoded / Math.max(0.1, (performance.now() - startTime) / 1e3) * 10) / 10,
-          etaSeconds: 0,
-          elapsedSeconds: Math.round((performance.now() - startTime) / 1e3),
-          logEntry: {
-            id: `log-done-${Date.now()}`,
-            timestamp: (/* @__PURE__ */ new Date()).toLocaleTimeString(),
-            level: "notice",
-            message: `[core 2.0] Work done! Encoded size: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${Math.round(blob.size * 8 / totalDuration / 1e3)} kbps)`
-          }
-        });
-        resolve({
-          blob,
-          url: outputUrl,
-          sizeBytes: blob.size,
-          validation: validationResult
-        });
-      };
       const cleanup = () => {
         try {
           video.pause();
           video.src = "";
           audioSession?.cleanup();
+          if (freshBlobUrl) {
+            URL.revokeObjectURL(freshBlobUrl);
+          }
         } catch (e) {
         }
       };
       video.onerror = () => {
+        const err = video.error;
+        let codeStr = "Unknown";
+        if (err) {
+          switch (err.code) {
+            case 1:
+              codeStr = "MEDIA_ERR_ABORTED";
+              break;
+            case 2:
+              codeStr = "MEDIA_ERR_NETWORK";
+              break;
+            case 3:
+              codeStr = "MEDIA_ERR_DECODE";
+              break;
+            case 4:
+              codeStr = "MEDIA_ERR_SRC_NOT_SUPPORTED";
+              break;
+            default:
+              codeStr = `CODE_${err.code}`;
+          }
+        }
+        const errorMsg = `Video playback error (${codeStr}): ${err?.message || "Format or codec not supported by browser"}`;
+        emitLog(`[error] ${errorMsg}`, "error");
         this.activeControllers.delete(job.id);
         cleanup();
-        reject(new Error("Video playback error during transcoding stream."));
+        reject(new Error(errorMsg));
       };
-      video.src = job.source.url;
+      video.src = srcUrl;
+      try {
+        video.load();
+      } catch (loadErr) {
+        console.warn("video.load() notice:", loadErr);
+      }
     });
   }
   pause(jobId) {
@@ -17314,91 +17385,117 @@ var __iconNode3 = [
 ];
 var Battery = createLucideIcon("battery", __iconNode3);
 
-// node_modules/lucide-react/dist/esm/icons/captions.js
+// node_modules/lucide-react/dist/esm/icons/camera.js
 var __iconNode4 = [
+  [
+    "path",
+    {
+      d: "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z",
+      key: "18u6gg"
+    }
+  ],
+  ["circle", { cx: "12", cy: "13", r: "3", key: "1vg3eu" }]
+];
+var Camera = createLucideIcon("camera", __iconNode4);
+
+// node_modules/lucide-react/dist/esm/icons/captions.js
+var __iconNode5 = [
   ["rect", { width: "18", height: "14", x: "3", y: "5", rx: "2", ry: "2", key: "12ruh7" }],
   ["path", { d: "M7 15h4M15 15h2M7 11h2M13 11h4", key: "1ueiar" }]
 ];
-var Captions = createLucideIcon("captions", __iconNode4);
+var Captions = createLucideIcon("captions", __iconNode5);
 
 // node_modules/lucide-react/dist/esm/icons/check.js
-var __iconNode5 = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]];
-var Check = createLucideIcon("check", __iconNode5);
+var __iconNode6 = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]];
+var Check = createLucideIcon("check", __iconNode6);
 
 // node_modules/lucide-react/dist/esm/icons/chevron-down.js
-var __iconNode6 = [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]];
-var ChevronDown = createLucideIcon("chevron-down", __iconNode6);
+var __iconNode7 = [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]];
+var ChevronDown = createLucideIcon("chevron-down", __iconNode7);
 
 // node_modules/lucide-react/dist/esm/icons/chevron-right.js
-var __iconNode7 = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
-var ChevronRight = createLucideIcon("chevron-right", __iconNode7);
+var __iconNode8 = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
+var ChevronRight = createLucideIcon("chevron-right", __iconNode8);
 
 // node_modules/lucide-react/dist/esm/icons/chevron-up.js
-var __iconNode8 = [["path", { d: "m18 15-6-6-6 6", key: "153udz" }]];
-var ChevronUp = createLucideIcon("chevron-up", __iconNode8);
+var __iconNode9 = [["path", { d: "m18 15-6-6-6 6", key: "153udz" }]];
+var ChevronUp = createLucideIcon("chevron-up", __iconNode9);
 
 // node_modules/lucide-react/dist/esm/icons/circle-alert.js
-var __iconNode9 = [
+var __iconNode10 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "12", x2: "12", y1: "8", y2: "12", key: "1pkeuh" }],
   ["line", { x1: "12", x2: "12.01", y1: "16", y2: "16", key: "4dfq90" }]
 ];
-var CircleAlert = createLucideIcon("circle-alert", __iconNode9);
+var CircleAlert = createLucideIcon("circle-alert", __iconNode10);
 
 // node_modules/lucide-react/dist/esm/icons/circle-check-big.js
-var __iconNode10 = [
+var __iconNode11 = [
   ["path", { d: "M21.801 10A10 10 0 1 1 17 3.335", key: "yps3ct" }],
   ["path", { d: "m9 11 3 3L22 4", key: "1pflzl" }]
 ];
-var CircleCheckBig = createLucideIcon("circle-check-big", __iconNode10);
+var CircleCheckBig = createLucideIcon("circle-check-big", __iconNode11);
 
 // node_modules/lucide-react/dist/esm/icons/circle-check.js
-var __iconNode11 = [
+var __iconNode12 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ];
-var CircleCheck = createLucideIcon("circle-check", __iconNode11);
+var CircleCheck = createLucideIcon("circle-check", __iconNode12);
 
 // node_modules/lucide-react/dist/esm/icons/circle-plus.js
-var __iconNode12 = [
+var __iconNode13 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M8 12h8", key: "1wcyev" }],
   ["path", { d: "M12 8v8", key: "napkw2" }]
 ];
-var CirclePlus = createLucideIcon("circle-plus", __iconNode12);
+var CirclePlus = createLucideIcon("circle-plus", __iconNode13);
 
 // node_modules/lucide-react/dist/esm/icons/circle-x.js
-var __iconNode13 = [
+var __iconNode14 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m15 9-6 6", key: "1uzhvr" }],
   ["path", { d: "m9 9 6 6", key: "z0biqf" }]
 ];
-var CircleX = createLucideIcon("circle-x", __iconNode13);
+var CircleX = createLucideIcon("circle-x", __iconNode14);
 
 // node_modules/lucide-react/dist/esm/icons/clock.js
-var __iconNode14 = [
+var __iconNode15 = [
   ["path", { d: "M12 6v6l4 2", key: "mmk7yg" }],
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
 ];
-var Clock = createLucideIcon("clock", __iconNode14);
+var Clock = createLucideIcon("clock", __iconNode15);
 
 // node_modules/lucide-react/dist/esm/icons/code-xml.js
-var __iconNode15 = [
+var __iconNode16 = [
   ["path", { d: "m18 16 4-4-4-4", key: "1inbqp" }],
   ["path", { d: "m6 8-4 4 4 4", key: "15zrgr" }],
   ["path", { d: "m14.5 4-5 16", key: "e7oirm" }]
 ];
-var CodeXml = createLucideIcon("code-xml", __iconNode15);
+var CodeXml = createLucideIcon("code-xml", __iconNode16);
+
+// node_modules/lucide-react/dist/esm/icons/compass.js
+var __iconNode17 = [
+  [
+    "path",
+    {
+      d: "m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z",
+      key: "9ktpf1"
+    }
+  ],
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
+];
+var Compass = createLucideIcon("compass", __iconNode17);
 
 // node_modules/lucide-react/dist/esm/icons/copy.js
-var __iconNode16 = [
+var __iconNode18 = [
   ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
   ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
 ];
-var Copy = createLucideIcon("copy", __iconNode16);
+var Copy = createLucideIcon("copy", __iconNode18);
 
 // node_modules/lucide-react/dist/esm/icons/cpu.js
-var __iconNode17 = [
+var __iconNode19 = [
   ["path", { d: "M12 20v2", key: "1lh1kg" }],
   ["path", { d: "M12 2v2", key: "tus03m" }],
   ["path", { d: "M17 20v2", key: "1rnc9c" }],
@@ -17414,50 +17511,58 @@ var __iconNode17 = [
   ["rect", { x: "4", y: "4", width: "16", height: "16", rx: "2", key: "1vbyd7" }],
   ["rect", { x: "8", y: "8", width: "8", height: "8", rx: "1", key: "z9xiuo" }]
 ];
-var Cpu = createLucideIcon("cpu", __iconNode17);
+var Cpu = createLucideIcon("cpu", __iconNode19);
 
 // node_modules/lucide-react/dist/esm/icons/crop.js
-var __iconNode18 = [
+var __iconNode20 = [
   ["path", { d: "M6 2v14a2 2 0 0 0 2 2h14", key: "ron5a4" }],
   ["path", { d: "M18 22V8a2 2 0 0 0-2-2H2", key: "7s9ehn" }]
 ];
-var Crop = createLucideIcon("crop", __iconNode18);
+var Crop = createLucideIcon("crop", __iconNode20);
 
 // node_modules/lucide-react/dist/esm/icons/download.js
-var __iconNode19 = [
+var __iconNode21 = [
   ["path", { d: "M12 15V3", key: "m9g1x1" }],
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
   ["path", { d: "m7 10 5 5 5-5", key: "brsn70" }]
 ];
-var Download = createLucideIcon("download", __iconNode19);
+var Download = createLucideIcon("download", __iconNode21);
 
 // node_modules/lucide-react/dist/esm/icons/ellipsis-vertical.js
-var __iconNode20 = [
+var __iconNode22 = [
   ["circle", { cx: "12", cy: "12", r: "1", key: "41hilf" }],
   ["circle", { cx: "12", cy: "5", r: "1", key: "gxeob9" }],
   ["circle", { cx: "12", cy: "19", r: "1", key: "lyex9k" }]
 ];
-var EllipsisVertical = createLucideIcon("ellipsis-vertical", __iconNode20);
+var EllipsisVertical = createLucideIcon("ellipsis-vertical", __iconNode22);
 
 // node_modules/lucide-react/dist/esm/icons/external-link.js
-var __iconNode21 = [
+var __iconNode23 = [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ];
-var ExternalLink = createLucideIcon("external-link", __iconNode21);
+var ExternalLink = createLucideIcon("external-link", __iconNode23);
+
+// node_modules/lucide-react/dist/esm/icons/file-check.js
+var __iconNode24 = [
+  ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
+  ["path", { d: "m9 15 2 2 4-4", key: "1grp1n" }]
+];
+var FileCheck = createLucideIcon("file-check", __iconNode24);
 
 // node_modules/lucide-react/dist/esm/icons/file-code.js
-var __iconNode22 = [
+var __iconNode25 = [
   ["path", { d: "M10 12.5 8 15l2 2.5", key: "1tg20x" }],
   ["path", { d: "m14 12.5 2 2.5-2 2.5", key: "yinavb" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z", key: "1mlx9k" }]
 ];
-var FileCode = createLucideIcon("file-code", __iconNode22);
+var FileCode = createLucideIcon("file-code", __iconNode25);
 
 // node_modules/lucide-react/dist/esm/icons/file-play.js
-var __iconNode23 = [
+var __iconNode26 = [
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z", key: "1mlx9k" }],
   [
@@ -17468,10 +17573,10 @@ var __iconNode23 = [
     }
   ]
 ];
-var FilePlay = createLucideIcon("file-play", __iconNode23);
+var FilePlay = createLucideIcon("file-play", __iconNode26);
 
 // node_modules/lucide-react/dist/esm/icons/film.js
-var __iconNode24 = [
+var __iconNode27 = [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M7 3v18", key: "bbkbws" }],
   ["path", { d: "M3 7.5h4", key: "zfgn84" }],
@@ -17481,18 +17586,18 @@ var __iconNode24 = [
   ["path", { d: "M17 7.5h4", key: "myr1c1" }],
   ["path", { d: "M17 16.5h4", key: "go4c1d" }]
 ];
-var Film = createLucideIcon("film", __iconNode24);
+var Film = createLucideIcon("film", __iconNode27);
 
 // node_modules/lucide-react/dist/esm/icons/globe.js
-var __iconNode25 = [
+var __iconNode28 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", key: "13o1zl" }],
   ["path", { d: "M2 12h20", key: "9i4pu4" }]
 ];
-var Globe = createLucideIcon("globe", __iconNode25);
+var Globe = createLucideIcon("globe", __iconNode28);
 
 // node_modules/lucide-react/dist/esm/icons/hard-drive.js
-var __iconNode26 = [
+var __iconNode29 = [
   ["line", { x1: "22", x2: "2", y1: "12", y2: "12", key: "1y58io" }],
   [
     "path",
@@ -17504,18 +17609,18 @@ var __iconNode26 = [
   ["line", { x1: "6", x2: "6.01", y1: "16", y2: "16", key: "sgf278" }],
   ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
 ];
-var HardDrive = createLucideIcon("hard-drive", __iconNode26);
+var HardDrive = createLucideIcon("hard-drive", __iconNode29);
 
 // node_modules/lucide-react/dist/esm/icons/info.js
-var __iconNode27 = [
+var __iconNode30 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 16v-4", key: "1dtifu" }],
   ["path", { d: "M12 8h.01", key: "e9boi3" }]
 ];
-var Info = createLucideIcon("info", __iconNode27);
+var Info = createLucideIcon("info", __iconNode30);
 
 // node_modules/lucide-react/dist/esm/icons/layers.js
-var __iconNode28 = [
+var __iconNode31 = [
   [
     "path",
     {
@@ -17538,10 +17643,10 @@ var __iconNode28 = [
     }
   ]
 ];
-var Layers = createLucideIcon("layers", __iconNode28);
+var Layers = createLucideIcon("layers", __iconNode31);
 
 // node_modules/lucide-react/dist/esm/icons/list-ordered.js
-var __iconNode29 = [
+var __iconNode32 = [
   ["path", { d: "M11 5h10", key: "1cz7ny" }],
   ["path", { d: "M11 12h10", key: "1438ji" }],
   ["path", { d: "M11 19h10", key: "11t30w" }],
@@ -17549,41 +17654,54 @@ var __iconNode29 = [
   ["path", { d: "M4 9h2", key: "r1h2o0" }],
   ["path", { d: "M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02", key: "xtkcd5" }]
 ];
-var ListOrdered = createLucideIcon("list-ordered", __iconNode29);
+var ListOrdered = createLucideIcon("list-ordered", __iconNode32);
 
 // node_modules/lucide-react/dist/esm/icons/lock.js
-var __iconNode30 = [
+var __iconNode33 = [
   ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
   ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
 ];
-var Lock = createLucideIcon("lock", __iconNode30);
+var Lock = createLucideIcon("lock", __iconNode33);
+
+// node_modules/lucide-react/dist/esm/icons/map-pin.js
+var __iconNode34 = [
+  [
+    "path",
+    {
+      d: "M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0",
+      key: "1r0f0z"
+    }
+  ],
+  ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
+];
+var MapPin = createLucideIcon("map-pin", __iconNode34);
 
 // node_modules/lucide-react/dist/esm/icons/maximize-2.js
-var __iconNode31 = [
+var __iconNode35 = [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "m21 3-7 7", key: "1l2asr" }],
   ["path", { d: "m3 21 7-7", key: "tjx5ai" }],
   ["path", { d: "M9 21H3v-6", key: "wtvkvv" }]
 ];
-var Maximize2 = createLucideIcon("maximize-2", __iconNode31);
+var Maximize2 = createLucideIcon("maximize-2", __iconNode35);
 
 // node_modules/lucide-react/dist/esm/icons/monitor.js
-var __iconNode32 = [
+var __iconNode36 = [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ];
-var Monitor = createLucideIcon("monitor", __iconNode32);
+var Monitor = createLucideIcon("monitor", __iconNode36);
 
 // node_modules/lucide-react/dist/esm/icons/pause.js
-var __iconNode33 = [
+var __iconNode37 = [
   ["rect", { x: "14", y: "3", width: "5", height: "18", rx: "1", key: "kaeet6" }],
   ["rect", { x: "5", y: "3", width: "5", height: "18", rx: "1", key: "1wsw3u" }]
 ];
-var Pause = createLucideIcon("pause", __iconNode33);
+var Pause = createLucideIcon("pause", __iconNode37);
 
 // node_modules/lucide-react/dist/esm/icons/play.js
-var __iconNode34 = [
+var __iconNode38 = [
   [
     "path",
     {
@@ -17592,59 +17710,86 @@ var __iconNode34 = [
     }
   ]
 ];
-var Play = createLucideIcon("play", __iconNode34);
+var Play = createLucideIcon("play", __iconNode38);
 
 // node_modules/lucide-react/dist/esm/icons/plus.js
-var __iconNode35 = [
+var __iconNode39 = [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ];
-var Plus = createLucideIcon("plus", __iconNode35);
+var Plus = createLucideIcon("plus", __iconNode39);
 
 // node_modules/lucide-react/dist/esm/icons/refresh-cw.js
-var __iconNode36 = [
+var __iconNode40 = [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
   ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ];
-var RefreshCw = createLucideIcon("refresh-cw", __iconNode36);
+var RefreshCw = createLucideIcon("refresh-cw", __iconNode40);
 
 // node_modules/lucide-react/dist/esm/icons/rotate-cw.js
-var __iconNode37 = [
+var __iconNode41 = [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ];
-var RotateCw = createLucideIcon("rotate-cw", __iconNode37);
+var RotateCw = createLucideIcon("rotate-cw", __iconNode41);
 
 // node_modules/lucide-react/dist/esm/icons/search.js
-var __iconNode38 = [
+var __iconNode42 = [
   ["path", { d: "m21 21-4.34-4.34", key: "14j7rj" }],
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }]
 ];
-var Search = createLucideIcon("search", __iconNode38);
+var Search = createLucideIcon("search", __iconNode42);
 
 // node_modules/lucide-react/dist/esm/icons/server.js
-var __iconNode39 = [
+var __iconNode43 = [
   ["rect", { width: "20", height: "8", x: "2", y: "2", rx: "2", ry: "2", key: "ngkwjq" }],
   ["rect", { width: "20", height: "8", x: "2", y: "14", rx: "2", ry: "2", key: "iecqi9" }],
   ["line", { x1: "6", x2: "6.01", y1: "6", y2: "6", key: "16zg32" }],
   ["line", { x1: "6", x2: "6.01", y1: "18", y2: "18", key: "nzw8ys" }]
 ];
-var Server = createLucideIcon("server", __iconNode39);
+var Server = createLucideIcon("server", __iconNode43);
 
 // node_modules/lucide-react/dist/esm/icons/share-2.js
-var __iconNode40 = [
+var __iconNode44 = [
   ["circle", { cx: "18", cy: "5", r: "3", key: "gq8acd" }],
   ["circle", { cx: "6", cy: "12", r: "3", key: "w7nqdw" }],
   ["circle", { cx: "18", cy: "19", r: "3", key: "1xt0gg" }],
   ["line", { x1: "8.59", x2: "15.42", y1: "13.51", y2: "17.49", key: "47mynk" }],
   ["line", { x1: "15.41", x2: "8.59", y1: "6.51", y2: "10.49", key: "1n3mei" }]
 ];
-var Share2 = createLucideIcon("share-2", __iconNode40);
+var Share2 = createLucideIcon("share-2", __iconNode44);
+
+// node_modules/lucide-react/dist/esm/icons/shield-alert.js
+var __iconNode45 = [
+  [
+    "path",
+    {
+      d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
+      key: "oel41y"
+    }
+  ],
+  ["path", { d: "M12 8v4", key: "1got3b" }],
+  ["path", { d: "M12 16h.01", key: "1drbdi" }]
+];
+var ShieldAlert = createLucideIcon("shield-alert", __iconNode45);
+
+// node_modules/lucide-react/dist/esm/icons/shield-check.js
+var __iconNode46 = [
+  [
+    "path",
+    {
+      d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
+      key: "oel41y"
+    }
+  ],
+  ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
+];
+var ShieldCheck = createLucideIcon("shield-check", __iconNode46);
 
 // node_modules/lucide-react/dist/esm/icons/sliders-vertical.js
-var __iconNode41 = [
+var __iconNode47 = [
   ["path", { d: "M10 8h4", key: "1sr2af" }],
   ["path", { d: "M12 21v-9", key: "17s77i" }],
   ["path", { d: "M12 8V3", key: "13r4qs" }],
@@ -17655,10 +17800,10 @@ var __iconNode41 = [
   ["path", { d: "M5 10V3", key: "cb8scm" }],
   ["path", { d: "M5 21v-7", key: "1w1uti" }]
 ];
-var SlidersVertical = createLucideIcon("sliders-vertical", __iconNode41);
+var SlidersVertical = createLucideIcon("sliders-vertical", __iconNode47);
 
 // node_modules/lucide-react/dist/esm/icons/sliders-horizontal.js
-var __iconNode42 = [
+var __iconNode48 = [
   ["path", { d: "M10 5H3", key: "1qgfaw" }],
   ["path", { d: "M12 19H3", key: "yhmn1j" }],
   ["path", { d: "M14 3v4", key: "1sua03" }],
@@ -17669,17 +17814,17 @@ var __iconNode42 = [
   ["path", { d: "M8 10v4", key: "tgpxqk" }],
   ["path", { d: "M8 12H3", key: "a7s4jb" }]
 ];
-var SlidersHorizontal = createLucideIcon("sliders-horizontal", __iconNode42);
+var SlidersHorizontal = createLucideIcon("sliders-horizontal", __iconNode48);
 
 // node_modules/lucide-react/dist/esm/icons/smartphone.js
-var __iconNode43 = [
+var __iconNode49 = [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
   ["path", { d: "M12 18h.01", key: "mhygvu" }]
 ];
-var Smartphone = createLucideIcon("smartphone", __iconNode43);
+var Smartphone = createLucideIcon("smartphone", __iconNode49);
 
 // node_modules/lucide-react/dist/esm/icons/sparkles.js
-var __iconNode44 = [
+var __iconNode50 = [
   [
     "path",
     {
@@ -17691,52 +17836,79 @@ var __iconNode44 = [
   ["path", { d: "M22 4h-4", key: "gwowj6" }],
   ["circle", { cx: "4", cy: "20", r: "2", key: "6kqj1y" }]
 ];
-var Sparkles = createLucideIcon("sparkles", __iconNode44);
+var Sparkles = createLucideIcon("sparkles", __iconNode50);
 
 // node_modules/lucide-react/dist/esm/icons/split.js
-var __iconNode45 = [
+var __iconNode51 = [
   ["path", { d: "M16 3h5v5", key: "1806ms" }],
   ["path", { d: "M8 3H3v5", key: "15dfkv" }],
   ["path", { d: "M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3", key: "1qrqzj" }],
   ["path", { d: "m15 9 6-6", key: "ko1vev" }]
 ];
-var Split = createLucideIcon("split", __iconNode45);
+var Split = createLucideIcon("split", __iconNode51);
 
 // node_modules/lucide-react/dist/esm/icons/square-plus.js
-var __iconNode46 = [
+var __iconNode52 = [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M8 12h8", key: "1wcyev" }],
   ["path", { d: "M12 8v8", key: "napkw2" }]
 ];
-var SquarePlus = createLucideIcon("square-plus", __iconNode46);
+var SquarePlus = createLucideIcon("square-plus", __iconNode52);
+
+// node_modules/lucide-react/dist/esm/icons/tag.js
+var __iconNode53 = [
+  [
+    "path",
+    {
+      d: "M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z",
+      key: "vktsd0"
+    }
+  ],
+  ["circle", { cx: "7.5", cy: "7.5", r: ".5", fill: "currentColor", key: "kqv944" }]
+];
+var Tag = createLucideIcon("tag", __iconNode53);
 
 // node_modules/lucide-react/dist/esm/icons/terminal.js
-var __iconNode47 = [
+var __iconNode54 = [
   ["path", { d: "M12 19h8", key: "baeox8" }],
   ["path", { d: "m4 17 6-6-6-6", key: "1yngyt" }]
 ];
-var Terminal = createLucideIcon("terminal", __iconNode47);
+var Terminal = createLucideIcon("terminal", __iconNode54);
 
 // node_modules/lucide-react/dist/esm/icons/trash-2.js
-var __iconNode48 = [
+var __iconNode55 = [
   ["path", { d: "M10 11v6", key: "nco0om" }],
   ["path", { d: "M14 11v6", key: "outv1u" }],
   ["path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", key: "miytrc" }],
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", key: "e791ji" }]
 ];
-var Trash2 = createLucideIcon("trash-2", __iconNode48);
+var Trash2 = createLucideIcon("trash-2", __iconNode55);
+
+// node_modules/lucide-react/dist/esm/icons/triangle-alert.js
+var __iconNode56 = [
+  [
+    "path",
+    {
+      d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3",
+      key: "wmoenq"
+    }
+  ],
+  ["path", { d: "M12 9v4", key: "juzpu7" }],
+  ["path", { d: "M12 17h.01", key: "p32p05" }]
+];
+var TriangleAlert = createLucideIcon("triangle-alert", __iconNode56);
 
 // node_modules/lucide-react/dist/esm/icons/upload.js
-var __iconNode49 = [
+var __iconNode57 = [
   ["path", { d: "M12 3v12", key: "1x0j5s" }],
   ["path", { d: "m17 8-5-5-5 5", key: "7q97r8" }],
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }]
 ];
-var Upload = createLucideIcon("upload", __iconNode49);
+var Upload = createLucideIcon("upload", __iconNode57);
 
 // node_modules/lucide-react/dist/esm/icons/video.js
-var __iconNode50 = [
+var __iconNode58 = [
   [
     "path",
     {
@@ -17746,10 +17918,10 @@ var __iconNode50 = [
   ],
   ["rect", { x: "2", y: "6", width: "14", height: "12", rx: "2", key: "158x01" }]
 ];
-var Video = createLucideIcon("video", __iconNode50);
+var Video = createLucideIcon("video", __iconNode58);
 
 // node_modules/lucide-react/dist/esm/icons/volume-2.js
-var __iconNode51 = [
+var __iconNode59 = [
   [
     "path",
     {
@@ -17760,10 +17932,10 @@ var __iconNode51 = [
   ["path", { d: "M16 9a5 5 0 0 1 0 6", key: "1q6k2b" }],
   ["path", { d: "M19.364 18.364a9 9 0 0 0 0-12.728", key: "ijwkga" }]
 ];
-var Volume2 = createLucideIcon("volume-2", __iconNode51);
+var Volume2 = createLucideIcon("volume-2", __iconNode59);
 
 // node_modules/lucide-react/dist/esm/icons/wand-sparkles.js
-var __iconNode52 = [
+var __iconNode60 = [
   [
     "path",
     {
@@ -17779,26 +17951,26 @@ var __iconNode52 = [
   ["path", { d: "M21 16h-4", key: "1cnmox" }],
   ["path", { d: "M11 3H9", key: "1obp7u" }]
 ];
-var WandSparkles = createLucideIcon("wand-sparkles", __iconNode52);
+var WandSparkles = createLucideIcon("wand-sparkles", __iconNode60);
 
 // node_modules/lucide-react/dist/esm/icons/wifi.js
-var __iconNode53 = [
+var __iconNode61 = [
   ["path", { d: "M12 20h.01", key: "zekei9" }],
   ["path", { d: "M2 8.82a15 15 0 0 1 20 0", key: "dnpr2z" }],
   ["path", { d: "M5 12.859a10 10 0 0 1 14 0", key: "1x1e6c" }],
   ["path", { d: "M8.5 16.429a5 5 0 0 1 7 0", key: "1bycff" }]
 ];
-var Wifi = createLucideIcon("wifi", __iconNode53);
+var Wifi = createLucideIcon("wifi", __iconNode61);
 
 // node_modules/lucide-react/dist/esm/icons/x.js
-var __iconNode54 = [
+var __iconNode62 = [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ];
-var X = createLucideIcon("x", __iconNode54);
+var X = createLucideIcon("x", __iconNode62);
 
 // node_modules/lucide-react/dist/esm/icons/zap.js
-var __iconNode55 = [
+var __iconNode63 = [
   [
     "path",
     {
@@ -17807,7 +17979,7 @@ var __iconNode55 = [
     }
   ]
 ];
-var Zap = createLucideIcon("zap", __iconNode55);
+var Zap = createLucideIcon("zap", __iconNode63);
 
 // src/components/PlatformSwitcherBar.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -18634,6 +18806,15 @@ var StudioHeader = ({
         "button",
         {
           type: "button",
+          onClick: () => onChangeTab("metadata"),
+          className: `hover:text-white transition-colors whitespace-nowrap shrink-0 pb-0.5 ${activeTab === "metadata" ? "text-cyan-400 font-bold border-b-2 border-cyan-400" : ""}`,
+          children: "EXIF Studio"
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+        "button",
+        {
+          type: "button",
           onClick: () => onChangeTab("code"),
           className: `hover:text-white transition-colors whitespace-nowrap shrink-0 pb-0.5 ${activeTab === "code" ? "text-amber-400 font-bold border-b-2 border-amber-400" : ""}`,
           children: "Swift Architecture"
@@ -18667,10 +18848,11 @@ var IOSBottomBar = ({
     { id: "presets", label: "Presets", icon: SlidersHorizontal },
     { id: "queue", label: "Queue", icon: Layers, badge: queueBadgeCount },
     { id: "studio", label: "Studio", icon: SlidersVertical },
-    { id: "code", label: "Swift Code", icon: CodeXml },
+    { id: "metadata", label: "EXIF", icon: Tag },
+    { id: "code", label: "Swift", icon: CodeXml },
     { id: "remote", label: "Remote", icon: Server }
   ];
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("nav", { className: "shrink-0 bg-[#0c0d14]/95 backdrop-blur-xl border-t border-white/10 z-30 select-none pb-safe", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "grid grid-cols-6 h-14 items-center", children: tabs.map((tab) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("nav", { className: "shrink-0 bg-[#0c0d14]/95 backdrop-blur-xl border-t border-white/10 z-30 select-none pb-safe", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "grid grid-cols-7 h-14 items-center", children: tabs.map((tab) => {
     const Icon2 = tab.icon;
     const isActive = activeTab === tab.id;
     return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
@@ -21717,8 +21899,1451 @@ var VideoStudioTab = ({
   ] });
 };
 
-// src/components/tabs/NativeCodeTab.tsx
+// src/components/tabs/MetadataStudioTab.tsx
 var import_react10 = __toESM(require_react(), 1);
+
+// src/services/metadata/geoUtils.ts
+var GeoUtilsService = class {
+  /**
+   * Parses standard ISO 6709 string e.g. "+37.7749-122.4194+015.000/" or "+37.7749-122.4194/"
+   */
+  parseISO6709(isoString) {
+    if (!isoString || typeof isoString !== "string") return null;
+    const clean = isoString.trim().replace(/\/$/, "");
+    const regex = /^([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)(?:([+-]\d+(?:\.\d+)?))?$/;
+    const match = clean.match(regex);
+    if (match) {
+      const lat = parseFloat(match[1]);
+      const lon = parseFloat(match[2]);
+      const alt = match[3] !== void 0 ? parseFloat(match[3]) : null;
+      if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+        return {
+          latitude: lat,
+          longitude: lon,
+          altitude: alt
+        };
+      }
+    }
+    return null;
+  }
+  /**
+   * Formats decimal latitude and longitude into QuickTime ISO 6709 format:
+   * e.g. "+37.7749-122.4194+015.000/"
+   */
+  formatISO6709(lat, lon, alt) {
+    if (lat === null || lon === null || isNaN(lat) || isNaN(lon)) return "";
+    const latSign = lat >= 0 ? "+" : "-";
+    const lonSign = lon >= 0 ? "+" : "-";
+    const latStr = latSign + Math.abs(lat).toFixed(4).padStart(7, "0");
+    const lonStr = lonSign + Math.abs(lon).toFixed(4).padStart(8, "0");
+    let altStr = "";
+    if (alt !== null && alt !== void 0 && !isNaN(alt)) {
+      const altVal = Number(alt);
+      const altSign = altVal >= 0 ? "+" : "-";
+      altStr = altSign + Math.abs(altVal).toFixed(3).padStart(7, "0");
+    }
+    return `${latStr}${lonStr}${altStr}/`;
+  }
+  /**
+   * Converts decimal degrees to human-readable DMS string:
+   * e.g. 37° 46' 29.6" N
+   */
+  toDMS(deg, isLat) {
+    if (deg === null || isNaN(deg)) return "--";
+    const absolute = Math.abs(deg);
+    const degrees = Math.floor(absolute);
+    const minutesNotTruncated = (absolute - degrees) * 60;
+    const minutes = Math.floor(minutesNotTruncated);
+    const seconds = ((minutesNotTruncated - minutes) * 60).toFixed(1);
+    const direction = isLat ? deg >= 0 ? "N" : "S" : deg >= 0 ? "E" : "W";
+    return `${degrees}\xB0 ${minutes}' ${seconds}" ${direction}`;
+  }
+  /**
+   * Formats coordinates to XMP/EXIF standard GPS representation
+   */
+  toXMPGPS(lat, lon, alt) {
+    if (lat === null || lon === null || isNaN(lat) || isNaN(lon)) return null;
+    const latAbs = Math.abs(lat);
+    const latDeg = Math.floor(latAbs);
+    const latMin = (latAbs - latDeg) * 60;
+    const latRef = lat >= 0 ? "N" : "S";
+    const latXMP = `${String(latDeg).padStart(2, "0")},${latMin.toFixed(6)}${latRef}`;
+    const lonAbs = Math.abs(lon);
+    const lonDeg = Math.floor(lonAbs);
+    const lonMin = (lonAbs - lonDeg) * 60;
+    const lonRef = lon >= 0 ? "E" : "W";
+    const lonXMP = `${String(lonDeg).padStart(3, "0")},${lonMin.toFixed(6)}${lonRef}`;
+    let altXMP = null;
+    let altRef = "0";
+    if (alt !== null && alt !== void 0 && !isNaN(alt)) {
+      const altNum = Number(alt);
+      altRef = altNum < 0 ? "1" : "0";
+      altXMP = `${Math.round(Math.abs(altNum) * 100)}/100`;
+    }
+    const coordsXMP = `${latAbs.toFixed(6)} ${latRef}, ${lonAbs.toFixed(6)} ${lonRef}`;
+    return {
+      latitude: latXMP,
+      longitude: lonXMP,
+      latitudeRef: latRef,
+      longitudeRef: lonRef,
+      altitude: altXMP,
+      altitudeRef: altRef,
+      coordinates: coordsXMP
+    };
+  }
+};
+var geoUtils = new GeoUtilsService();
+
+// src/services/metadata/mp4Parser.ts
+var MAC_EPOCH_OFFSET = 2082844800;
+var MP4ParserService = class {
+  readUint32(view, offset) {
+    return view.getUint32(offset, false);
+  }
+  readUint64(view, offset) {
+    const high = view.getUint32(offset, false);
+    const low = view.getUint32(offset + 4, false);
+    return (BigInt(high) << 32n) + BigInt(low);
+  }
+  readASCII(view, offset, length) {
+    let str = "";
+    for (let i = 0; i < length; i++) {
+      str += String.fromCharCode(view.getUint8(offset + i));
+    }
+    return str;
+  }
+  writeUint32(view, offset, value) {
+    view.setUint32(offset, value >>> 0, false);
+  }
+  writeASCII(view, offset, str) {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  }
+  macSecondsToDate(seconds) {
+    if (!seconds || Number(seconds) <= 0) return null;
+    const unixSeconds = Number(seconds) - MAC_EPOCH_OFFSET;
+    return new Date(unixSeconds * 1e3);
+  }
+  dateToMacSeconds(date) {
+    if (!date) return 0;
+    const d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d.getTime())) return 0;
+    const unixSeconds = Math.floor(d.getTime() / 1e3);
+    return unixSeconds + MAC_EPOCH_OFFSET;
+  }
+  async readFileSlice(file, start, end) {
+    const slice = file.slice(start, end);
+    return await slice.arrayBuffer();
+  }
+  async scanTopLevelBoxes(file) {
+    const boxes = [];
+    let offset = 0;
+    const fileSize = file.size;
+    while (offset < fileSize) {
+      const headerLen = Math.min(16, fileSize - offset);
+      if (headerLen < 8) break;
+      const buf = await this.readFileSlice(file, offset, offset + headerLen);
+      const view = new DataView(buf);
+      let size = this.readUint32(view, 0);
+      const type = this.readASCII(view, 4, 4);
+      let headerSize = 8;
+      if (size === 1) {
+        if (headerLen < 16) break;
+        size = Number(this.readUint64(view, 8));
+        headerSize = 16;
+      } else if (size === 0) {
+        size = fileSize - offset;
+      }
+      let isC2PA = false;
+      if (type === "c2pa") {
+        isC2PA = true;
+      } else if (type === "uuid" && offset + headerSize + 16 <= fileSize) {
+        const uuidBuf = await this.readFileSlice(file, offset + headerSize, offset + headerSize + 16);
+        const u8 = new Uint8Array(uuidBuf);
+        const C2PA_UUID = [216, 254, 195, 211, 26, 59, 72, 52, 146, 22, 181, 212, 60, 43, 31, 248];
+        if (u8.length >= 16 && C2PA_UUID.every((b, i) => u8[i] === b)) {
+          isC2PA = true;
+        }
+      }
+      boxes.push({ type, offset, size, headerSize, isC2PA });
+      if (size <= 0) break;
+      offset += size;
+    }
+    return boxes;
+  }
+  parseBoxTree(buffer, startOffset = 0, length = buffer.byteLength) {
+    const boxes = [];
+    const view = new DataView(buffer);
+    let offset = startOffset;
+    const end = startOffset + length;
+    while (offset + 8 <= end) {
+      let size = this.readUint32(view, offset);
+      const type = this.readASCII(view, offset + 4, 4);
+      let headerSize = 8;
+      if (size === 1) {
+        if (offset + 16 > end) break;
+        size = Number(this.readUint64(view, offset + 8));
+        headerSize = 16;
+      } else if (size === 0) {
+        size = end - offset;
+      }
+      if (size < headerSize || offset + size > end) break;
+      const payloadOffset = offset + headerSize;
+      const payloadSize = size - headerSize;
+      boxes.push({ type, offset, size, headerSize, payloadOffset, payloadSize });
+      offset += size;
+    }
+    return boxes;
+  }
+  extractMoovMetadata(moovBuffer, moovBox) {
+    const view = new DataView(moovBuffer);
+    const children = this.parseBoxTree(moovBuffer, moovBox.headerSize, moovBox.size - moovBox.headerSize);
+    let durationSeconds = 0;
+    let timescale = 1e3;
+    let width = 0;
+    let height = 0;
+    let rotation = 0;
+    let codec = "H.264 / AVC";
+    let compressorName = "AVC";
+    let hasAudio = false;
+    let audioCodec = void 0;
+    const tags = {};
+    let location = null;
+    const mvhd = children.find((b) => b.type === "mvhd");
+    if (mvhd) {
+      const version = view.getUint8(mvhd.payloadOffset);
+      let cTime = 0;
+      let mTime = 0;
+      let tScale = 1e3;
+      let dur = 0;
+      if (version === 1) {
+        cTime = Number(this.readUint64(view, mvhd.payloadOffset + 4));
+        mTime = Number(this.readUint64(view, mvhd.payloadOffset + 12));
+        tScale = this.readUint32(view, mvhd.payloadOffset + 20);
+        dur = Number(this.readUint64(view, mvhd.payloadOffset + 24));
+      } else {
+        cTime = this.readUint32(view, mvhd.payloadOffset + 4);
+        mTime = this.readUint32(view, mvhd.payloadOffset + 8);
+        tScale = this.readUint32(view, mvhd.payloadOffset + 12);
+        dur = this.readUint32(view, mvhd.payloadOffset + 16);
+      }
+      timescale = tScale || 1e3;
+      durationSeconds = dur > 0 && timescale > 0 ? dur / timescale : 0;
+      const creationDate = this.macSecondsToDate(cTime);
+      const modifyDate = this.macSecondsToDate(mTime);
+      if (creationDate) tags.creationDate = creationDate;
+      if (modifyDate) tags.modifyDate = modifyDate;
+    }
+    const traks = children.filter((b) => b.type === "trak");
+    for (const trak of traks) {
+      const trakChildren = this.parseBoxTree(moovBuffer, trak.payloadOffset, trak.payloadSize);
+      const tkhd = trakChildren.find((b) => b.type === "tkhd");
+      const mdia = trakChildren.find((b) => b.type === "mdia");
+      let isVideo = false;
+      let rawW = 0;
+      let rawH = 0;
+      let rot = 0;
+      if (tkhd) {
+        const v = view.getUint8(tkhd.payloadOffset);
+        const matrixOffset = tkhd.payloadOffset + (v === 1 ? 44 : 36);
+        const wOffset = matrixOffset + 36;
+        const hOffset = wOffset + 4;
+        rawW = this.readUint32(view, wOffset) >> 16;
+        rawH = this.readUint32(view, hOffset) >> 16;
+        const a = view.getInt32(matrixOffset, false) / 65536;
+        const b = view.getInt32(matrixOffset + 4, false) / 65536;
+        const c = view.getInt32(matrixOffset + 12, false) / 65536;
+        const d = view.getInt32(matrixOffset + 16, false) / 65536;
+        if (a === 0 && b === 1 && c === -1 && d === 0) rot = 90;
+        else if (a === -1 && b === 0 && c === 0 && d === -1) rot = 180;
+        else if (a === 0 && b === -1 && c === 1 && d === 0) rot = 270;
+        else rot = 0;
+      }
+      if (mdia) {
+        const mdiaChildren = this.parseBoxTree(moovBuffer, mdia.payloadOffset, mdia.payloadSize);
+        const hdlr = mdiaChildren.find((b) => b.type === "hdlr");
+        if (hdlr) {
+          const hType = this.readASCII(view, hdlr.payloadOffset + 8, 4);
+          if (hType === "vide") isVideo = true;
+          if (hType === "soun") {
+            hasAudio = true;
+            audioCodec = "AAC / CoreAudio";
+          }
+        }
+        const minf = mdiaChildren.find((b) => b.type === "minf");
+        if (minf) {
+          const minfChildren = this.parseBoxTree(moovBuffer, minf.payloadOffset, minf.payloadSize);
+          const stbl = minfChildren.find((b) => b.type === "stbl");
+          if (stbl) {
+            const stblChildren = this.parseBoxTree(moovBuffer, stbl.payloadOffset, stbl.payloadSize);
+            const stsd = stblChildren.find((b) => b.type === "stsd");
+            if (stsd && stsd.payloadSize >= 16) {
+              const entryType = this.readASCII(view, stsd.payloadOffset + 12, 4);
+              if (isVideo) {
+                codec = entryType;
+                if (entryType === "hvc1" || entryType === "hev1") compressorName = "HEVC 10-bit";
+                else if (entryType === "avc1") compressorName = "H.264 / AVC";
+                else if (entryType === "vp09") compressorName = "VP9";
+                else if (entryType === "av01") compressorName = "AV1";
+                else compressorName = entryType.toUpperCase();
+              } else {
+                audioCodec = entryType.toUpperCase();
+              }
+            }
+          }
+        }
+      }
+      if (isVideo && width === 0 && rawW > 0 && rawH > 0) {
+        width = rot === 90 || rot === 270 ? rawH : rawW;
+        height = rot === 90 || rot === 270 ? rawW : rawH;
+        rotation = rot;
+      }
+    }
+    const udta = children.find((b) => b.type === "udta");
+    if (udta) {
+      const udtaChildren = this.parseBoxTree(moovBuffer, udta.payloadOffset, udta.payloadSize);
+      const xyz = udtaChildren.find((b) => b.type === "\xA9xyz");
+      if (xyz && xyz.payloadSize > 2) {
+        const rawStr = this.readASCII(view, xyz.payloadOffset + 2, xyz.payloadSize - 2);
+        location = geoUtils.parseISO6709(rawStr);
+      }
+      const meta = udtaChildren.find((b) => b.type === "meta");
+      if (meta) {
+        this.parseMetaBoxIntoTags(moovBuffer, meta, tags);
+      }
+    }
+    const metaBoxes = children.filter((b) => b.type === "meta");
+    for (const mb of metaBoxes) {
+      this.parseMetaBoxIntoTags(moovBuffer, mb, tags);
+    }
+    return {
+      technical: {
+        durationSeconds: Math.round(durationSeconds * 10) / 10,
+        width: width || 1920,
+        height: height || 1080,
+        rotation,
+        timescale,
+        codec,
+        compressorName,
+        container: "mp4",
+        fileSizeBytes: moovBuffer.byteLength,
+        hasAudio,
+        audioCodec
+      },
+      tags,
+      location,
+      hasC2PA: false
+    };
+  }
+  parseMetaBoxIntoTags(buffer, metaBox, tags) {
+    const view = new DataView(buffer);
+    const hdlrOffset = metaBox.payloadOffset + 4;
+    const isFullBox = metaBox.payloadSize >= 4 && view.getUint8(metaBox.payloadOffset) === 0;
+    const startPayload = isFullBox ? metaBox.payloadOffset + 4 : metaBox.payloadOffset;
+    const payloadLength = metaBox.size - (startPayload - metaBox.offset);
+    const children = this.parseBoxTree(buffer, startPayload, payloadLength);
+    const ilst = children.find((b) => b.type === "ilst");
+    if (ilst) {
+      const ilstChildren = this.parseBoxTree(buffer, ilst.payloadOffset, ilst.payloadSize);
+      for (const item of ilstChildren) {
+        const dataBox = this.parseBoxTree(buffer, item.payloadOffset, item.payloadSize).find((b) => b.type === "data");
+        if (dataBox && dataBox.payloadSize >= 8) {
+          const text = this.readASCII(view, dataBox.payloadOffset + 8, dataBox.payloadSize - 8);
+          switch (item.type) {
+            case "\xA9nam":
+              tags.title = text;
+              break;
+            case "\xA9ART":
+              tags.artist = text;
+              break;
+            case "cprt":
+              tags.copyright = text;
+              break;
+            case "\xA9day":
+              tags.creationDate = text;
+              break;
+            case "\xA9des":
+              tags.description = text;
+              break;
+            case "\xA9cmt":
+              tags.comment = text;
+              break;
+          }
+        }
+      }
+    }
+  }
+  /**
+   * Reads metadata from a file or blob
+   */
+  async readMetadata(file) {
+    const boxes = await this.scanTopLevelBoxes(file);
+    const moov = boxes.find((b) => b.type === "moov");
+    const ftyp = boxes.find((b) => b.type === "ftyp");
+    const hasC2PA = boxes.some((b) => b.isC2PA);
+    let container = "mp4";
+    if (ftyp) {
+      const ftypBuf = await this.readFileSlice(file, ftyp.offset, ftyp.offset + ftyp.size);
+      const dv = new DataView(ftypBuf);
+      const major = this.readASCII(dv, 8, 4);
+      if (major === "qt  ") container = "mov";
+      else if (major.startsWith("mp4") || major.startsWith("isom")) container = "mp4";
+      else if (major.startsWith("M4V")) container = "m4v";
+    }
+    if (!moov) {
+      return {
+        technical: {
+          durationSeconds: 0,
+          width: 0,
+          height: 0,
+          rotation: 0,
+          timescale: 1e3,
+          codec: "Unknown",
+          container,
+          fileSizeBytes: file.size,
+          hasAudio: false
+        },
+        tags: {},
+        location: null,
+        hasC2PA
+      };
+    }
+    const moovBuf = await this.readFileSlice(file, moov.offset, moov.offset + moov.size);
+    const record = this.extractMoovMetadata(moovBuf, moov);
+    record.technical.container = container;
+    record.technical.fileSizeBytes = file.size;
+    record.hasC2PA = hasC2PA;
+    record.rawAtomStructure = boxes.map((b) => ({ type: b.type, size: b.size, offset: b.offset }));
+    return record;
+  }
+  /**
+   * Applies metadata edits to an MP4/MOV container losslessly (0 re-encoding, stream slicing)
+   */
+  async writeMetadata(file, edits) {
+    const boxes = await this.scanTopLevelBoxes(file);
+    const moovBox = boxes.find((b) => b.type === "moov");
+    if (!moovBox) {
+      throw new Error("No moov box found in container");
+    }
+    const moovBuf = await this.readFileSlice(file, moovBox.offset, moovBox.offset + moovBox.size);
+    const newMoovBytes = new Uint8Array(moovBuf);
+    const view = new DataView(newMoovBytes.buffer);
+    if (edits.rotation !== void 0) {
+      const children = this.parseBoxTree(newMoovBytes.buffer, moovBox.headerSize, moovBox.size - moovBox.headerSize);
+      const traks = children.filter((b) => b.type === "trak");
+      for (const trak of traks) {
+        const trakChildren = this.parseBoxTree(newMoovBytes.buffer, trak.payloadOffset, trak.payloadSize);
+        const tkhd = trakChildren.find((b) => b.type === "tkhd");
+        if (tkhd) {
+          const v = view.getUint8(tkhd.payloadOffset);
+          const matrixOffset = tkhd.payloadOffset + (v === 1 ? 44 : 36);
+          let a = 65536;
+          let b = 0;
+          let c = 0;
+          let d = 65536;
+          if (edits.rotation === 90) {
+            a = 0;
+            b = 65536;
+            c = -65536;
+            d = 0;
+          } else if (edits.rotation === 180) {
+            a = -65536;
+            b = 0;
+            c = 0;
+            d = -65536;
+          } else if (edits.rotation === 270) {
+            a = 0;
+            b = -65536;
+            c = 65536;
+            d = 0;
+          }
+          view.setInt32(matrixOffset, a, false);
+          view.setInt32(matrixOffset + 4, b, false);
+          view.setInt32(matrixOffset + 12, c, false);
+          view.setInt32(matrixOffset + 16, d, false);
+        }
+      }
+    }
+    if (edits.creationDate || edits.modifyDate) {
+      const children = this.parseBoxTree(newMoovBytes.buffer, moovBox.headerSize, moovBox.size - moovBox.headerSize);
+      const mvhd = children.find((b) => b.type === "mvhd");
+      if (mvhd) {
+        const v = view.getUint8(mvhd.payloadOffset);
+        if (v === 0) {
+          if (edits.creationDate) {
+            this.writeUint32(view, mvhd.payloadOffset + 4, this.dateToMacSeconds(edits.creationDate));
+          }
+          if (edits.modifyDate) {
+            this.writeUint32(view, mvhd.payloadOffset + 8, this.dateToMacSeconds(edits.modifyDate));
+          }
+        }
+      }
+    }
+    const slices = [];
+    if (moovBox.offset > 0) {
+      slices.push(file.slice(0, moovBox.offset));
+    }
+    slices.push(newMoovBytes);
+    const afterMoovOffset = moovBox.offset + moovBox.size;
+    if (afterMoovOffset < file.size) {
+      slices.push(file.slice(afterMoovOffset));
+    }
+    const outType = file.type || "video/mp4";
+    return new Blob(slices, { type: outType });
+  }
+};
+var mp4Parser = new MP4ParserService();
+
+// src/services/metadata/metadataReader.ts
+var MetadataReaderService = class {
+  /**
+   * Reads metadata and atom structure from an MP4/MOV/M4V file without reading full sample data.
+   */
+  async read(file) {
+    return await mp4Parser.readMetadata(file);
+  }
+};
+var MetadataReader = new MetadataReaderService();
+
+// src/services/metadata/metadataEditor.ts
+var MetadataEditorService = class {
+  /**
+   * Applies metadata edits to an MP4/MOV container losslessly (0 video re-encoding).
+   */
+  async apply(file, edits) {
+    const updatedBlob = await mp4Parser.writeMetadata(file, edits);
+    const updatedMeta = await mp4Parser.readMetadata(updatedBlob);
+    return {
+      blob: updatedBlob,
+      updatedMeta
+    };
+  }
+};
+var MetadataEditor = new MetadataEditorService();
+
+// src/services/metadata/metadataPrivacy.ts
+var MetadataPrivacyService = class {
+  /**
+   * Scrubs sensitive metadata according to policy and returns output blob plus audit diff.
+   */
+  async scrub(file, policy) {
+    const beforeMeta = await MetadataReader.read(file);
+    const diff = {};
+    const edits = {};
+    if (policy === "gps-only") {
+      edits.scrubGPS = true;
+      edits.location = null;
+      diff["GPS Location"] = {
+        before: beforeMeta.location ? `${beforeMeta.location.latitude.toFixed(4)}, ${beforeMeta.location.longitude.toFixed(4)}` : "None",
+        after: "Removed (Lossless)"
+      };
+    } else if (policy === "device-only") {
+      edits.scrubDevice = true;
+      edits.tags = {
+        make: "",
+        model: "",
+        software: "",
+        lensModel: "",
+        cameraIdentifier: ""
+      };
+      diff["Camera Hardware"] = {
+        before: `${beforeMeta.tags.make || ""} ${beforeMeta.tags.model || ""}`.trim() || "None",
+        after: "Removed"
+      };
+      diff["Software / OS"] = {
+        before: beforeMeta.tags.software || "None",
+        after: "Removed"
+      };
+    } else if (policy === "full") {
+      edits.scrubAll = true;
+      edits.location = null;
+      edits.creationDate = /* @__PURE__ */ new Date("1970-01-01T00:00:00Z");
+      edits.modifyDate = /* @__PURE__ */ new Date("1970-01-01T00:00:00Z");
+      edits.tags = {
+        title: "",
+        artist: "",
+        copyright: "",
+        make: "",
+        model: "",
+        software: "",
+        lensModel: "",
+        cameraIdentifier: ""
+      };
+      diff["GPS Location"] = {
+        before: beforeMeta.location ? `${beforeMeta.location.latitude.toFixed(4)}, ${beforeMeta.location.longitude.toFixed(4)}` : "None",
+        after: "Scrubbed"
+      };
+      diff["Device & Software"] = {
+        before: `${beforeMeta.tags.make || ""} ${beforeMeta.tags.model || ""}`.trim() || "None",
+        after: "Scrubbed"
+      };
+      diff["Creation Timestamp"] = {
+        before: beforeMeta.tags.creationDate ? String(beforeMeta.tags.creationDate) : "Present",
+        after: "Normalized to Epoch (1970)"
+      };
+    }
+    const { blob } = await MetadataEditor.apply(file, edits);
+    return { blob, diff };
+  }
+};
+var MetadataPrivacy = new MetadataPrivacyService();
+
+// src/services/metadata/metadataExport.ts
+var MetadataExportService = class {
+  /**
+   * Generates exported file blob with metadata applied.
+   */
+  async write(file, edits, mode = "lossless") {
+    const outputBlob = await mp4Parser.writeMetadata(file, edits);
+    const originalName = file instanceof File ? file.name : "video.mp4";
+    const baseName = originalName.replace(/\.[^/.]+$/, "");
+    const ext = originalName.endsWith(".mov") ? ".mov" : ".mp4";
+    const tagSuffix = mode === "lossless" ? "_metadata" : "_encoded";
+    const filename = `${baseName}${tagSuffix}${ext}`;
+    return {
+      blob: outputBlob,
+      filename,
+      sizeBytes: outputBlob.size
+    };
+  }
+};
+var MetadataExport = new MetadataExportService();
+
+// src/components/tabs/MetadataStudioTab.tsx
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var MetadataStudioTab = ({
+  source,
+  onSelectSource,
+  onEnqueueLosslessExport
+}) => {
+  const [activeSubTab, setActiveSubTab] = (0, import_react10.useState)("inspect");
+  const [metaRecord, setMetaRecord] = (0, import_react10.useState)(null);
+  const [isLoading, setIsLoading] = (0, import_react10.useState)(false);
+  const [statusMessage, setStatusMessage] = (0, import_react10.useState)(null);
+  const [statusType, setStatusType] = (0, import_react10.useState)("info");
+  const [editTitle, setEditTitle] = (0, import_react10.useState)("");
+  const [editArtist, setEditArtist] = (0, import_react10.useState)("");
+  const [editCopyright, setEditCopyright] = (0, import_react10.useState)("");
+  const [editMake, setEditMake] = (0, import_react10.useState)("");
+  const [editModel, setEditModel] = (0, import_react10.useState)("");
+  const [editSoftware, setEditSoftware] = (0, import_react10.useState)("");
+  const [editLensModel, setEditLensModel] = (0, import_react10.useState)("");
+  const [editCreationDate, setEditCreationDate] = (0, import_react10.useState)("");
+  const [geoLat, setGeoLat] = (0, import_react10.useState)("");
+  const [geoLon, setGeoLon] = (0, import_react10.useState)("");
+  const [geoAlt, setGeoAlt] = (0, import_react10.useState)("");
+  const [showMap, setShowMap] = (0, import_react10.useState)(false);
+  const [privacyDiff, setPrivacyDiff] = (0, import_react10.useState)(null);
+  const [batchItems, setBatchItems] = (0, import_react10.useState)([]);
+  const [exportedBlob, setExportedBlob] = (0, import_react10.useState)(null);
+  const [exportedBlobUrl, setExportedBlobUrl] = (0, import_react10.useState)(null);
+  const [exportedFilename, setExportedFilename] = (0, import_react10.useState)("");
+  const fileInputRef = (0, import_react10.useRef)(null);
+  const batchInputRef = (0, import_react10.useRef)(null);
+  (0, import_react10.useEffect)(() => {
+    let isMounted = true;
+    const loadMetadata = async () => {
+      if (!source) {
+        setMetaRecord(null);
+        return;
+      }
+      setIsLoading(true);
+      try {
+        let blobToRead;
+        if (source.file) {
+          blobToRead = source.file;
+        } else {
+          const res = await fetch(source.url);
+          blobToRead = await res.blob();
+        }
+        const record = await MetadataReader.read(blobToRead);
+        if (isMounted) {
+          setMetaRecord(record);
+          setEditTitle(record.tags.title || "");
+          setEditArtist(record.tags.artist || "");
+          setEditCopyright(record.tags.copyright || "");
+          setEditMake(record.tags.make || "");
+          setEditModel(record.tags.model || "");
+          setEditSoftware(record.tags.software || "");
+          setEditLensModel(record.tags.lensModel || "");
+          if (record.tags.creationDate) {
+            const d = record.tags.creationDate instanceof Date ? record.tags.creationDate : new Date(record.tags.creationDate);
+            if (!isNaN(d.getTime())) {
+              setEditCreationDate(d.toISOString().slice(0, 16));
+            }
+          }
+          if (record.location) {
+            setGeoLat(record.location.latitude.toString());
+            setGeoLon(record.location.longitude.toString());
+            setGeoAlt(record.location.altitude !== null && record.location.altitude !== void 0 ? record.location.altitude.toString() : "");
+          } else {
+            setGeoLat("");
+            setGeoLon("");
+            setGeoAlt("");
+          }
+        }
+      } catch (err) {
+        if (isMounted) {
+          setStatusMessage(`Metadata inspect warning: ${err.message || "Unable to parse container"}`);
+          setStatusType("warning");
+        }
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadMetadata();
+    return () => {
+      isMounted = false;
+    };
+  }, [source]);
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !onSelectSource) return;
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.src = url;
+    video.onloadedmetadata = () => {
+      onSelectSource({
+        id: `upload-${Date.now()}`,
+        name: file.name,
+        sizeBytes: file.size,
+        durationSeconds: video.duration || 10,
+        width: video.videoWidth || 1920,
+        height: video.videoHeight || 1080,
+        fps: 30,
+        bitrateKbps: Math.round(file.size * 8 / (video.duration || 10) / 1e3),
+        codec: file.type || "video/mp4",
+        url,
+        thumbnailUrl: "",
+        file
+      });
+    };
+  };
+  const handleApplyEdits = async () => {
+    if (!source) return;
+    setIsLoading(true);
+    try {
+      const edits = {
+        tags: {
+          title: editTitle,
+          artist: editArtist,
+          copyright: editCopyright,
+          make: editMake,
+          model: editModel,
+          software: editSoftware,
+          lensModel: editLensModel
+        }
+      };
+      if (editCreationDate) {
+        edits.creationDate = new Date(editCreationDate);
+      }
+      if (geoLat && geoLon) {
+        edits.location = {
+          latitude: parseFloat(geoLat),
+          longitude: parseFloat(geoLon),
+          altitude: geoAlt ? parseFloat(geoAlt) : null
+        };
+      }
+      let sourceBlob;
+      if (source.file) sourceBlob = source.file;
+      else {
+        const res = await fetch(source.url);
+        sourceBlob = await res.blob();
+      }
+      const { blob, filename, sizeBytes } = await MetadataExport.write(sourceBlob, edits, "lossless");
+      const outUrl = URL.createObjectURL(blob);
+      setExportedBlob(blob);
+      setExportedBlobUrl(outUrl);
+      setExportedFilename(filename);
+      setStatusMessage(`Metadata updated losslessly! Export ready: ${filename} (${(sizeBytes / 1024 / 1024).toFixed(2)} MB)`);
+      setStatusType("success");
+      setActiveSubTab("export");
+    } catch (err) {
+      setStatusMessage(`Failed to apply metadata edits: ${err.message}`);
+      setStatusType("error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const handleApplyScrub = async (policy) => {
+    if (!source) return;
+    setIsLoading(true);
+    try {
+      let sourceBlob;
+      if (source.file) sourceBlob = source.file;
+      else {
+        const res = await fetch(source.url);
+        sourceBlob = await res.blob();
+      }
+      const { blob, diff } = await MetadataPrivacy.scrub(sourceBlob, policy);
+      setPrivacyDiff(diff);
+      const baseName = source.name.replace(/\.[^/.]+$/, "");
+      const ext = source.name.endsWith(".mov") ? ".mov" : ".mp4";
+      const outName = `${baseName}_scrubbed_${policy}${ext}`;
+      const outUrl = URL.createObjectURL(blob);
+      setExportedBlob(blob);
+      setExportedBlobUrl(outUrl);
+      setExportedFilename(outName);
+      setStatusMessage(`Privacy scrub (${policy}) applied losslessly! Ready for download.`);
+      setStatusType("success");
+    } catch (err) {
+      setStatusMessage(`Scrub failed: ${err.message}`);
+      setStatusType("error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const handleClearGPS = () => {
+    setGeoLat("");
+    setGeoLon("");
+    setGeoAlt("");
+    setStatusMessage('GPS coordinates cleared. Tap "Apply Changes" or Save to commit.');
+    setStatusType("info");
+  };
+  const handleBatchUpload = (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const newItems = Array.from(files).map((f) => ({
+      id: `batch-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      file: f,
+      status: "pending"
+    }));
+    setBatchItems((prev) => [...prev, ...newItems]);
+  };
+  const handleProcessBatch = async () => {
+    setIsLoading(true);
+    for (let i = 0; i < batchItems.length; i++) {
+      const item = batchItems[i];
+      if (item.status === "done") continue;
+      setBatchItems(
+        (prev) => prev.map((b) => b.id === item.id ? { ...b, status: "processing" } : b)
+      );
+      try {
+        const edits = {
+          tags: {
+            copyright: editCopyright || void 0,
+            artist: editArtist || void 0
+          }
+        };
+        const { blob, filename } = await MetadataExport.write(item.file, edits, "lossless");
+        setBatchItems(
+          (prev) => prev.map(
+            (b) => b.id === item.id ? { ...b, status: "done", outputBlob: blob, outputName: filename } : b
+          )
+        );
+      } catch (err) {
+        setBatchItems(
+          (prev) => prev.map(
+            (b) => b.id === item.id ? { ...b, status: "error", error: err.message || "Unsupported format" } : b
+          )
+        );
+      }
+    }
+    setIsLoading(false);
+  };
+  const subtabs = [
+    { id: "inspect", label: "Inspect", icon: FileCheck },
+    { id: "edit", label: "Edit Tags", icon: Tag },
+    { id: "geotag", label: "Geotag & Map", icon: MapPin },
+    { id: "privacy", label: "Privacy Scrub", icon: ShieldCheck },
+    { id: "batch", label: "Batch Operations", icon: Layers },
+    { id: "export", label: "Lossless Export", icon: Download }
+  ];
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-4 text-slate-100 pb-24", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center justify-between", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("h1", { className: "text-xl font-bold tracking-tight text-white flex items-center gap-2", children: [
+          "Metadata & EXIF Studio",
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] font-mono text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20", children: "Lossless Engine" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-xs text-slate-400", children: "Privacy-First Container Tagging, QuickTime ISO 6709 Geolocation & Lossless Scrub" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+        "button",
+        {
+          type: "button",
+          onClick: () => fileInputRef.current?.click(),
+          className: "flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 active:bg-cyan-600 text-slate-950 font-bold text-xs rounded-xl shadow-sm transition-all",
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Upload, { className: "w-3.5 h-3.5" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Import Video" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        "input",
+        {
+          ref: fileInputRef,
+          type: "file",
+          accept: "video/mp4,video/quicktime,video/x-m4v",
+          className: "hidden",
+          onChange: handleFileUpload
+        }
+      )
+    ] }),
+    statusMessage && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+      "div",
+      {
+        className: `p-3 rounded-xl border flex items-center justify-between gap-2 text-xs font-medium ${statusType === "success" ? "bg-emerald-950/40 border-emerald-500/30 text-emerald-300" : statusType === "warning" ? "bg-amber-950/40 border-amber-500/30 text-amber-300" : statusType === "error" ? "bg-rose-950/40 border-rose-500/30 text-rose-300" : "bg-cyan-950/40 border-cyan-500/30 text-cyan-300"}`,
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center gap-2", children: [
+            statusType === "success" ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(CircleCheck, { className: "w-4 h-4 shrink-0" }) : statusType === "error" ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(TriangleAlert, { className: "w-4 h-4 shrink-0" }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Info, { className: "w-4 h-4 shrink-0" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: statusMessage })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "button",
+            {
+              type: "button",
+              onClick: () => setStatusMessage(null),
+              className: "text-slate-400 hover:text-white",
+              children: "\xD7"
+            }
+          )
+        ]
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "flex overflow-x-auto p-1 bg-slate-900/90 rounded-xl border border-slate-800 gap-1 scrollbar-none", children: subtabs.map((tab) => {
+      const Icon2 = tab.icon;
+      const isActive = activeSubTab === tab.id;
+      return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+        "button",
+        {
+          type: "button",
+          onClick: () => setActiveSubTab(tab.id),
+          className: `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${isActive ? "bg-cyan-500 text-slate-950 shadow-md font-bold" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"}`,
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Icon2, { className: "w-3.5 h-3.5" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: tab.label })
+          ]
+        },
+        tab.id
+      );
+    }) }),
+    activeSubTab === "inspect" && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "space-y-4", children: source && metaRecord ? /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(FileCheck, { className: "w-3.5 h-3.5 text-cyan-400" }),
+            "Technical Container Properties (Read-Only)"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[10px] text-slate-400", children: "Derived directly from video streams and track headers" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] font-mono font-bold text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20 uppercase", children: metaRecord.technical.container })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-2.5 rounded-xl bg-slate-950/70 border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[9px] text-slate-500 uppercase block", children: "Duration" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("span", { className: "text-slate-200 font-bold", children: [
+            metaRecord.technical.durationSeconds.toFixed(1),
+            "s"
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-2.5 rounded-xl bg-slate-950/70 border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[9px] text-slate-500 uppercase block", children: "Resolution" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("span", { className: "text-slate-200 font-bold", children: [
+            metaRecord.technical.width,
+            "\xD7",
+            metaRecord.technical.height
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-2.5 rounded-xl bg-slate-950/70 border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[9px] text-slate-500 uppercase block", children: "Rotation Matrix" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("span", { className: "text-amber-400 font-bold", children: [
+            metaRecord.technical.rotation,
+            "\xB0"
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-2.5 rounded-xl bg-slate-950/70 border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[9px] text-slate-500 uppercase block", children: "Video Codec" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-emerald-400 font-bold truncate block", children: metaRecord.technical.codec })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "pt-2 space-y-2 border-t border-slate-800", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("h4", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Tag, { className: "w-3.5 h-3.5 text-cyan-400" }),
+          "User-Editable Metadata Tags"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-2.5 rounded-xl bg-slate-950/60 border border-white/5 space-y-0.5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] text-slate-500 uppercase font-semibold", children: "Title" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-slate-200 font-medium truncate", children: metaRecord.tags.title || "\u2014 (No Title Tag)" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-2.5 rounded-xl bg-slate-950/60 border border-white/5 space-y-0.5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] text-slate-500 uppercase font-semibold", children: "Artist / Author" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-slate-200 font-medium truncate", children: metaRecord.tags.artist || "\u2014 (None)" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-2.5 rounded-xl bg-slate-950/60 border border-white/5 space-y-0.5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] text-slate-500 uppercase font-semibold", children: "Camera Make / Model" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-slate-200 font-medium truncate", children: metaRecord.tags.make || metaRecord.tags.model ? `${metaRecord.tags.make || ""} ${metaRecord.tags.model || ""}`.trim() : "\u2014 (None)" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-2.5 rounded-xl bg-slate-950/60 border border-white/5 space-y-0.5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] text-slate-500 uppercase font-semibold", children: "Creation Timestamp" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-slate-200 font-medium truncate", children: metaRecord.tags.creationDate ? String(metaRecord.tags.creationDate) : "\u2014 (None)" })
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950/80 border border-cyan-500/20 flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center gap-2.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(MapPin, { className: "w-4 h-4 text-cyan-400 shrink-0" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-xs font-bold text-white block", children: "ISO 6709 Geolocation" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] font-mono text-slate-400", children: metaRecord.location ? `${metaRecord.location.latitude.toFixed(4)}, ${metaRecord.location.longitude.toFixed(4)} (${geoUtils.toDMS(metaRecord.location.latitude, true)} ${geoUtils.toDMS(metaRecord.location.longitude, false)})` : "No GPS coordinates tagged in container." })
+          ] })
+        ] }),
+        metaRecord.location && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+          "button",
+          {
+            type: "button",
+            onClick: () => setActiveSubTab("geotag"),
+            className: "px-2.5 py-1 text-xs font-semibold text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 rounded-lg border border-cyan-500/20 transition-colors",
+            children: "View Map"
+          }
+        )
+      ] })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-8 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl space-y-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Film, { className: "w-8 h-8 mx-auto text-slate-600" }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { children: "No video selected for inspection." }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        "button",
+        {
+          type: "button",
+          onClick: () => fileInputRef.current?.click(),
+          className: "px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-colors",
+          children: "Choose Local Video"
+        }
+      )
+    ] }) }),
+    activeSubTab === "edit" && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "flex items-center justify-between", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Tag, { className: "w-3.5 h-3.5 text-cyan-400" }),
+          "Edit Metadata Tags"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[11px] text-slate-400", children: "100% Lossless \u2014 Audio and video sample data remain byte-for-byte untouched." })
+      ] }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-medium", children: "Title (\xA9nam)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "text",
+              value: editTitle,
+              onChange: (e) => setEditTitle(e.target.value),
+              placeholder: "e.g. Cinematic Landscape",
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-medium", children: "Artist / Creator (\xA9ART)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "text",
+              value: editArtist,
+              onChange: (e) => setEditArtist(e.target.value),
+              placeholder: "e.g. Jane Doe",
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-medium", children: "Camera Make (com.apple.quicktime.make)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "text",
+              value: editMake,
+              onChange: (e) => setEditMake(e.target.value),
+              placeholder: "e.g. Apple, Sony, Canon",
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-medium", children: "Camera Model (com.apple.quicktime.model)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "text",
+              value: editModel,
+              onChange: (e) => setEditModel(e.target.value),
+              placeholder: "e.g. iPhone 16 Pro",
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-medium", children: "Software / OS" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "text",
+              value: editSoftware,
+              onChange: (e) => setEditSoftware(e.target.value),
+              placeholder: "e.g. iOS 18.1",
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-medium", children: "Lens Model" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "text",
+              value: editLensModel,
+              onChange: (e) => setEditLensModel(e.target.value),
+              placeholder: "e.g. iPhone 16 Pro back camera 6.76mm f/1.78",
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1 sm:col-span-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-medium", children: "Creation Date & Time" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "datetime-local",
+              value: editCreationDate,
+              onChange: (e) => setEditCreationDate(e.target.value),
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500 font-mono"
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "pt-2 flex justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        "button",
+        {
+          type: "button",
+          disabled: !source || isLoading,
+          onClick: handleApplyEdits,
+          className: "px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-bold text-xs rounded-xl shadow transition-all active:scale-95",
+          children: isLoading ? "Applying..." : "Apply Lossless Edits"
+        }
+      ) })
+    ] }),
+    activeSubTab === "geotag" && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(MapPin, { className: "w-3.5 h-3.5 text-cyan-400" }),
+            "QuickTime ISO 6709 Geolocation"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[11px] text-slate-400", children: "View, modify, or strip geographic GPS coordinates without re-encoding video." })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+          "button",
+          {
+            type: "button",
+            onClick: handleClearGPS,
+            className: "flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 text-xs font-semibold transition-colors",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Trash2, { className: "w-3.5 h-3.5" }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Remove GPS" })
+            ]
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-sans font-medium", children: "Latitude (-90 to 90)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "number",
+              step: "0.0001",
+              value: geoLat,
+              onChange: (e) => setGeoLat(e.target.value),
+              placeholder: "37.7749",
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] text-slate-500 font-sans block", children: geoLat ? geoUtils.toDMS(parseFloat(geoLat), true) : "Degrees N/S" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-sans font-medium", children: "Longitude (-180 to 180)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "number",
+              step: "0.0001",
+              value: geoLon,
+              onChange: (e) => setGeoLon(e.target.value),
+              placeholder: "-122.4194",
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] text-slate-500 font-sans block", children: geoLon ? geoUtils.toDMS(parseFloat(geoLon), false) : "Degrees E/W" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: "text-slate-300 font-sans font-medium", children: "Altitude (meters)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "input",
+            {
+              type: "number",
+              step: "0.1",
+              value: geoAlt,
+              onChange: (e) => setGeoAlt(e.target.value),
+              placeholder: "15.0",
+              className: "w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] text-slate-500 font-sans block", children: geoAlt ? `${geoAlt} m above sea level` : "Optional" })
+        ] })
+      ] }),
+      geoLat && geoLon && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-3 rounded-xl bg-slate-950 border border-white/5 space-y-1 text-xs", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-slate-400 block text-[10px] uppercase font-semibold", children: "Standard QuickTime Atom Value:" }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-cyan-400 font-mono font-bold", children: geoUtils.formatISO6709(parseFloat(geoLat), parseFloat(geoLon), geoAlt ? parseFloat(geoAlt) : null) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "pt-2", children: !showMap ? /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+        "button",
+        {
+          type: "button",
+          onClick: () => setShowMap(true),
+          className: "flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-xl border border-slate-700 transition-colors",
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Compass, { className: "w-3.5 h-3.5 text-cyan-400" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Show Interactive Map (Loads OpenStreetMap Tiles on Request)" })
+          ]
+        }
+      ) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "rounded-xl overflow-hidden border border-slate-800 h-56 bg-slate-950 relative flex items-center justify-center", children: geoLat && geoLon ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        "iframe",
+        {
+          title: "Map Preview",
+          width: "100%",
+          height: "100%",
+          className: "border-0",
+          src: `https://www.openstreetmap.org/export/embed.html?bbox=${parseFloat(geoLon) - 0.02}%2C${parseFloat(geoLat) - 0.02}%2C${parseFloat(geoLon) + 0.02}%2C${parseFloat(geoLat) + 0.02}&layer=mapnik&marker=${parseFloat(geoLat)}%2C${parseFloat(geoLon)}`
+        }
+      ) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-slate-500 text-xs", children: "Enter valid latitude and longitude to render map" }) }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "pt-2 flex justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        "button",
+        {
+          type: "button",
+          disabled: !source || isLoading,
+          onClick: handleApplyEdits,
+          className: "px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-xl shadow transition-all active:scale-95",
+          children: "Save Geotag Losslessly"
+        }
+      ) })
+    ] }),
+    activeSubTab === "privacy" && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ShieldCheck, { className: "w-3.5 h-3.5 text-cyan-400" }),
+          "Privacy & Metadata Scrub Presets"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[11px] text-slate-400", children: "One-click privacy scrub presets with before/after audit verification." })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-2.5 text-xs text-amber-300", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ShieldAlert, { className: "w-4 h-4 shrink-0 mt-0.5 text-amber-400" }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-0.5 leading-relaxed", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "font-bold block", children: "Privacy Safeguard Notice:" }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("p", { className: "text-[11px] text-amber-200/80", children: [
+            "Stripping container metadata removes GPS, device serials, and author tags from the file header. It does ",
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("strong", { children: "not" }),
+            " remove burned-in timestamps, visual watermarks, or audio recordings of your voice."
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "grid grid-cols-1 sm:grid-cols-3 gap-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+          "button",
+          {
+            type: "button",
+            disabled: !source || isLoading,
+            onClick: () => handleApplyScrub("gps-only"),
+            className: "p-3.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500/50 text-left transition-all group",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "w-7 h-7 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-2", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(MapPin, { className: "w-4 h-4" }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("h4", { className: "text-xs font-bold text-white group-hover:text-cyan-300", children: "GPS-Only Scrub" }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[10px] text-slate-400 mt-1", children: "Removes ISO 6709 coordinates and location tags. Preserves camera make/model and timestamps." })
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+          "button",
+          {
+            type: "button",
+            disabled: !source || isLoading,
+            onClick: () => handleApplyScrub("device-only"),
+            className: "p-3.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500/50 text-left transition-all group",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "w-7 h-7 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-2", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Camera, { className: "w-4 h-4" }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("h4", { className: "text-xs font-bold text-white group-hover:text-cyan-300", children: "Device Scrub" }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[10px] text-slate-400 mt-1", children: "Removes camera make, model, lens details, and OS software tags. Keeps GPS and timestamps." })
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+          "button",
+          {
+            type: "button",
+            disabled: !source || isLoading,
+            onClick: () => handleApplyScrub("full"),
+            className: "p-3.5 rounded-xl bg-slate-950 border border-rose-500/30 hover:border-rose-500 text-left transition-all group",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "w-7 h-7 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center mb-2", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ShieldCheck, { className: "w-4 h-4" }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("h4", { className: "text-xs font-bold text-white group-hover:text-rose-300", children: "Full Metadata Scrub" }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[10px] text-slate-400 mt-1", children: "Strips all GPS, hardware, software, author tags, and normalizes timestamps to 1970." })
+            ]
+          }
+        )
+      ] }),
+      privacyDiff && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-3.5 rounded-xl bg-slate-950 border border-white/5 space-y-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("h4", { className: "text-xs font-bold text-white", children: "Before / After Scrub Audit Diff" }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "space-y-1.5 text-xs font-mono", children: Object.entries(privacyDiff).map(([key, val]) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center justify-between p-2 rounded-lg bg-slate-900 border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("span", { className: "text-slate-400", children: [
+            key,
+            ":"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-rose-400 line-through", children: val.before }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "\u2192" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-emerald-400 font-bold", children: val.after })
+          ] })
+        ] }, key)) })
+      ] })
+    ] }),
+    activeSubTab === "batch" && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Layers, { className: "w-3.5 h-3.5 text-cyan-400" }),
+            "Batch Metadata Editing"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[11px] text-slate-400", children: "Apply copyright, author, or privacy scrub across multiple video files simultaneously." })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+          "button",
+          {
+            type: "button",
+            onClick: () => batchInputRef.current?.click(),
+            className: "flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-xl transition-all",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Upload, { className: "w-3.5 h-3.5" }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Add Videos" })
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+          "input",
+          {
+            ref: batchInputRef,
+            type: "file",
+            multiple: true,
+            accept: "video/mp4,video/quicktime,video/x-m4v",
+            className: "hidden",
+            onChange: handleBatchUpload
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-2", children: [
+        batchItems.map((item) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+          "div",
+          {
+            className: "p-3 rounded-xl bg-slate-950 border border-white/5 flex items-center justify-between gap-3 text-xs",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "min-w-0", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-white font-medium truncate", children: item.file.name }),
+                /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("p", { className: "text-[10px] text-slate-400 font-mono", children: [
+                  (item.file.size / 1024 / 1024).toFixed(1),
+                  " MB \xB7 Status: ",
+                  /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "capitalize text-cyan-400", children: item.status })
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center gap-2 shrink-0", children: [
+                item.status === "done" && item.outputBlob && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+                  "a",
+                  {
+                    href: URL.createObjectURL(item.outputBlob),
+                    download: item.outputName || "exported.mp4",
+                    className: "px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] rounded-lg shadow",
+                    children: "Download"
+                  }
+                ),
+                item.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[10px] text-rose-400", children: item.error })
+              ] })
+            ]
+          },
+          item.id
+        )),
+        batchItems.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "p-6 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl", children: 'No batch files queued. Click "Add Videos" to queue multiple MP4/MOV files.' })
+      ] }),
+      batchItems.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "pt-2 flex justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        "button",
+        {
+          type: "button",
+          disabled: isLoading,
+          onClick: handleProcessBatch,
+          className: "px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-bold text-xs rounded-xl shadow transition-all active:scale-95",
+          children: isLoading ? "Processing Batch..." : `Process All (${batchItems.length} files)`
+        }
+      ) })
+    ] }),
+    activeSubTab === "export" && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "flex items-center justify-between", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Download, { className: "w-3.5 h-3.5 text-cyan-400" }),
+          "Lossless Container Export"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[11px] text-slate-400", children: "100% Lossless \u2014 Generates valid MP4/MOV file with no video or audio re-encoding." })
+      ] }) }),
+      exportedBlob && exportedBlobUrl ? /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 space-y-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center gap-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(CircleCheck, { className: "w-6 h-6" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "min-w-0", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-xs font-bold text-white uppercase tracking-wider block", children: "Export Ready (Lossless Metadata Modified)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("p", { className: "text-xs text-slate-300 font-mono truncate", children: [
+              exportedFilename,
+              " \xB7 ",
+              (exportedBlob.size / 1024 / 1024).toFixed(2),
+              " MB"
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "pt-2 flex flex-wrap gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+            "a",
+            {
+              href: exportedBlobUrl,
+              download: exportedFilename,
+              className: "flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Download, { className: "w-4 h-4" }),
+                /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("span", { children: [
+                  "Download Lossless Video (",
+                  (exportedBlob.size / 1024 / 1024).toFixed(1),
+                  " MB)"
+                ] })
+              ]
+            }
+          ),
+          onEnqueueLosslessExport && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+            "button",
+            {
+              type: "button",
+              onClick: () => onEnqueueLosslessExport(exportedBlob, exportedFilename),
+              className: "flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-xl border border-slate-700 transition-colors",
+              children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Enqueue in Transcode Batch" })
+            }
+          )
+        ] })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-8 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl space-y-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(FileCheck, { className: "w-8 h-8 mx-auto text-slate-600" }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { children: "No export generated yet." }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-[11px] text-slate-600", children: 'Go to "Edit Tags", "Geotag", or "Privacy Scrub" and click Apply to generate a lossless export.' })
+      ] })
+    ] })
+  ] });
+};
+
+// src/components/tabs/NativeCodeTab.tsx
+var import_react11 = __toESM(require_react(), 1);
 
 // src/data/swiftCodebase.ts
 var SWIFT_PROJECT_FILES = [
@@ -22538,7 +24163,7 @@ class TranscodeWorker(
 ];
 
 // src/components/tabs/NativeCodeTab.tsx
-var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 var WEB_PROJECT_FILES = [
   {
     filename: "manifest.json",
@@ -22635,9 +24260,9 @@ export class WebCodecsPipeline {
   }
 ];
 var NativeCodeTab = () => {
-  const [activePlatform, setActivePlatform] = (0, import_react10.useState)("ios");
-  const [selectedFileIdx, setSelectedFileIdx] = (0, import_react10.useState)(0);
-  const [copied, setCopied] = (0, import_react10.useState)(false);
+  const [activePlatform, setActivePlatform] = (0, import_react11.useState)("ios");
+  const [selectedFileIdx, setSelectedFileIdx] = (0, import_react11.useState)(0);
+  const [copied, setCopied] = (0, import_react11.useState)(false);
   const getFiles = () => {
     switch (activePlatform) {
       case "ios":
@@ -22669,21 +24294,21 @@ var NativeCodeTab = () => {
       setTimeout(() => handleDownloadFile(f), idx * 200);
     });
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-4 text-slate-100 pb-20", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center justify-between", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("h1", { className: "text-xl font-bold tracking-tight text-white flex items-center gap-2", children: "Multi-Platform Code" }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "text-xs text-slate-400", children: "Native Swift (iOS), Kotlin (Android), and PWA Web pipelines" })
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-4 text-slate-100 pb-20", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center justify-between", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("h1", { className: "text-xl font-bold tracking-tight text-white flex items-center gap-2", children: "Multi-Platform Code" }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { className: "text-xs text-slate-400", children: "Native Swift (iOS), Kotlin (Android), and PWA Web pipelines" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
         "button",
         {
           type: "button",
           onClick: handleDownloadAll,
           className: "flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow transition-all",
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Download, { className: "w-3.5 h-3.5" }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Download, { className: "w-3.5 h-3.5" }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { children: [
               "Export ",
               activePlatform.toUpperCase(),
               " Bundle"
@@ -22692,8 +24317,8 @@ var NativeCodeTab = () => {
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "grid grid-cols-3 p-1 bg-slate-900 rounded-xl border border-slate-800 text-xs font-semibold", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "grid grid-cols-3 p-1 bg-slate-900 rounded-xl border border-slate-800 text-xs font-semibold", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
         "button",
         {
           type: "button",
@@ -22703,12 +24328,12 @@ var NativeCodeTab = () => {
           },
           className: `flex items-center justify-center gap-1.5 py-2 rounded-lg transition-colors ${activePlatform === "ios" ? "bg-amber-500 text-slate-950 font-bold shadow-sm" : "text-slate-400 hover:text-white"}`,
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Apple, { className: "w-4 h-4" }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Apple iOS (Swift)" })
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Apple, { className: "w-4 h-4" }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: "Apple iOS (Swift)" })
           ]
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
         "button",
         {
           type: "button",
@@ -22718,12 +24343,12 @@ var NativeCodeTab = () => {
           },
           className: `flex items-center justify-center gap-1.5 py-2 rounded-lg transition-colors ${activePlatform === "android" ? "bg-emerald-500 text-slate-950 font-bold shadow-sm" : "text-slate-400 hover:text-white"}`,
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Smartphone, { className: "w-4 h-4" }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Android (Kotlin)" })
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Smartphone, { className: "w-4 h-4" }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: "Android (Kotlin)" })
           ]
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
         "button",
         {
           type: "button",
@@ -22733,86 +24358,86 @@ var NativeCodeTab = () => {
           },
           className: `flex items-center justify-center gap-1.5 py-2 rounded-lg transition-colors ${activePlatform === "web" ? "bg-cyan-500 text-slate-950 font-bold shadow-sm" : "text-slate-400 hover:text-white"}`,
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Globe, { className: "w-4 h-4" }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Web & PWA" })
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Globe, { className: "w-4 h-4" }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: "Web & PWA" })
           ]
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs flex items-start gap-2.5", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Cpu, { className: "w-4 h-4 text-amber-400 shrink-0 mt-0.5" }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("strong", { className: "text-white", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs flex items-start gap-2.5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Cpu, { className: "w-4 h-4 text-amber-400 shrink-0 mt-0.5" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("strong", { className: "text-white", children: [
           activePlatform === "ios" && "Apple VideoToolbox (VTCompressionSession)",
           activePlatform === "android" && "Android MediaCodec & MediaMuxer Pipeline",
           activePlatform === "web" && "WebCodecs & MediaRecorder Hardware Acceleration"
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("p", { className: "text-[11px] text-slate-400 mt-0.5 leading-relaxed", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("p", { className: "text-[11px] text-slate-400 mt-0.5 leading-relaxed", children: [
           activePlatform === "ios" && "Native Apple Silicon hardware acceleration with BackgroundTasks BGProcessingTask for screen-off encodes and Dynamic Island Live Activities.",
           activePlatform === "android" && "Direct integration with Snapdragon, Google Tensor, and Exynos hardware encoders via MediaCodec with WorkManager for resilient background batch queues.",
           activePlatform === "web" && "Progressive Web App with Service Worker offline caching, WebCodecs low-latency hardware acceleration, and installable standalone display on all mobile and desktop browsers."
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar text-xs", children: files.map((file, idx) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar text-xs", children: files.map((file, idx) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
       "button",
       {
         type: "button",
         onClick: () => setSelectedFileIdx(idx),
         className: `whitespace-nowrap px-3 py-1.5 rounded-lg font-mono text-[11px] flex items-center gap-1.5 transition-colors ${selectedFileIdx === idx ? "bg-amber-500 text-slate-950 font-bold" : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"}`,
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(FileCode, { className: "w-3 h-3" }),
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: file.filename })
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(FileCode, { className: "w-3 h-3" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: file.filename })
         ]
       },
       file.filename
     )) }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "rounded-2xl bg-black border border-slate-800 overflow-hidden shadow-2xl", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "px-3.5 py-2.5 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center gap-1.5", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "w-2.5 h-2.5 rounded-full bg-rose-500/80" }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "w-2.5 h-2.5 rounded-full bg-amber-500/80" }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: "w-2.5 h-2.5 rounded-full bg-emerald-500/80" })
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "rounded-2xl bg-black border border-slate-800 overflow-hidden shadow-2xl", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "px-3.5 py-2.5 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center gap-1.5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "w-2.5 h-2.5 rounded-full bg-rose-500/80" }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "w-2.5 h-2.5 rounded-full bg-amber-500/80" }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "w-2.5 h-2.5 rounded-full bg-emerald-500/80" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[11px] font-mono text-slate-400 ml-2", children: currentFile.path })
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-[11px] font-mono text-slate-400 ml-2", children: currentFile.path })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "flex items-center gap-1.5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center gap-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
             "button",
             {
               type: "button",
               onClick: handleCopy,
               className: "flex items-center gap-1 px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-[11px] font-mono transition-colors",
-              children: copied ? /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(import_jsx_runtime14.Fragment, { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Check, { className: "w-3 h-3 text-emerald-400" }),
-                /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-emerald-400", children: "Copied" })
-              ] }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(import_jsx_runtime14.Fragment, { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Copy, { className: "w-3 h-3" }),
-                /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Copy" })
+              children: copied ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Check, { className: "w-3 h-3 text-emerald-400" }),
+                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-emerald-400", children: "Copied" })
+              ] }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Copy, { className: "w-3 h-3" }),
+                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: "Copy" })
               ] })
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
             "button",
             {
               type: "button",
               onClick: () => handleDownloadFile(currentFile),
               className: "p-1.5 text-slate-400 hover:text-white bg-white/10 hover:bg-white/20 rounded-lg transition-colors",
               title: "Download File",
-              children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Download, { className: "w-3 h-3" })
+              children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Download, { className: "w-3 h-3" })
             }
           )
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("pre", { className: "p-4 text-[11px] font-mono leading-relaxed text-slate-200 overflow-x-auto max-h-[380px] bg-[#0c0d12] select-text", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("code", { children: currentFile.code }) })
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("pre", { className: "p-4 text-[11px] font-mono leading-relaxed text-slate-200 overflow-x-auto max-h-[380px] bg-[#0c0d12] select-text", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("code", { children: currentFile.code }) })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 flex items-center justify-between text-xs", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "space-y-0.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "font-bold text-white block", children: "Official HandBrake Core" }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "text-[11px] text-slate-400", children: "github.com/handbrake/handbrake" })
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 flex items-center justify-between text-xs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "space-y-0.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "font-bold text-white block", children: "Official HandBrake Core" }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-[11px] text-slate-400", children: "github.com/handbrake/handbrake" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
         "a",
         {
           href: "https://github.com/handbrake/handbrake",
@@ -22820,8 +24445,8 @@ var NativeCodeTab = () => {
           rel: "noopener noreferrer",
           className: "flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-xl transition-colors font-medium text-xs",
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { children: "Repository" }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ExternalLink, { className: "w-3 h-3" })
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: "Repository" }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ExternalLink, { className: "w-3 h-3" })
           ]
         }
       )
@@ -22830,15 +24455,15 @@ var NativeCodeTab = () => {
 };
 
 // src/components/tabs/RemoteServerTab.tsx
-var import_react11 = __toESM(require_react(), 1);
-var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var import_react12 = __toESM(require_react(), 1);
+var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 var RemoteServerTab = () => {
-  const [serverHost, setServerHost] = (0, import_react11.useState)("192.168.1.140");
-  const [serverPort, setServerPort] = (0, import_react11.useState)("8080");
-  const [authToken, setAuthToken] = (0, import_react11.useState)("hb_mac_studio_m2");
-  const [isConnected, setIsConnected] = (0, import_react11.useState)(true);
-  const [isTesting, setIsTesting] = (0, import_react11.useState)(false);
-  const [serverInfo, setServerInfo] = (0, import_react11.useState)({
+  const [serverHost, setServerHost] = (0, import_react12.useState)("192.168.1.140");
+  const [serverPort, setServerPort] = (0, import_react12.useState)("8080");
+  const [authToken, setAuthToken] = (0, import_react12.useState)("hb_mac_studio_m2");
+  const [isConnected, setIsConnected] = (0, import_react12.useState)(true);
+  const [isTesting, setIsTesting] = (0, import_react12.useState)(false);
+  const [serverInfo, setServerInfo] = (0, import_react12.useState)({
     name: "Mac Studio (Apple M2 Ultra)",
     engine: "HandBrakeCLI 1.9.0 (Apple Silicon Media Engine x2)",
     cpuLoad: 24,
@@ -22853,21 +24478,21 @@ var RemoteServerTab = () => {
       setIsConnected(true);
     }, 800);
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-4 text-slate-100 pb-20", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("h1", { className: "text-xl font-bold tracking-tight text-white flex items-center gap-2", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-4 text-slate-100 pb-20", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("h1", { className: "text-xl font-bold tracking-tight text-white flex items-center gap-2", children: [
         "Remote Node",
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-[10px] font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20", children: "Connected" })
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: "text-[10px] font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20", children: "Connected" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { className: "text-xs text-slate-400", children: "Offload 4K Blu-ray & huge batches to your desktop Mac/PC over LAN" })
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { className: "text-xs text-slate-400", children: "Offload 4K Blu-ray & huge batches to your desktop Mac/PC over LAN" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center justify-between", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex items-center gap-2.5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Server, { className: "w-5 h-5" }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("h3", { className: "text-xs font-bold text-white", children: serverInfo.name }),
-            /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("p", { className: "text-[10px] text-slate-400 font-mono", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "flex items-center justify-between", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "flex items-center gap-2.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { className: "w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Server, { className: "w-5 h-5" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h3", { className: "text-xs font-bold text-white", children: serverInfo.name }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("p", { className: "text-[10px] text-slate-400 font-mono", children: [
               serverHost,
               ":",
               serverPort,
@@ -22875,7 +24500,7 @@ var RemoteServerTab = () => {
             ] })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
           "button",
           {
             type: "button",
@@ -22883,45 +24508,45 @@ var RemoteServerTab = () => {
             disabled: isTesting,
             className: "flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 rounded-xl transition-colors border border-slate-700/60",
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(RefreshCw, { className: `w-3 h-3 ${isTesting ? "animate-spin text-amber-400" : ""}` }),
-              /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: "Ping" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(RefreshCw, { className: `w-3 h-3 ${isTesting ? "animate-spin text-amber-400" : ""}` }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { children: "Ping" })
             ]
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "bg-slate-950 p-2.5 rounded-xl border border-white/5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "CPU / GPU LOAD" }),
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "text-emerald-400 font-bold block", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "bg-slate-950 p-2.5 rounded-xl border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "CPU / GPU LOAD" }),
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { className: "text-emerald-400 font-bold block", children: [
             serverInfo.cpuLoad,
             "%"
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "bg-slate-950 p-2.5 rounded-xl border border-white/5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "TEMP" }),
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "text-slate-200 block", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "bg-slate-950 p-2.5 rounded-xl border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "TEMP" }),
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { className: "text-slate-200 block", children: [
             serverInfo.tempC,
             "\xB0C"
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "bg-slate-950 p-2.5 rounded-xl border border-white/5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "DISK FREE" }),
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "text-slate-200 block", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "bg-slate-950 p-2.5 rounded-xl border border-white/5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: "text-slate-500 block text-[10px]", children: "DISK FREE" }),
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { className: "text-slate-200 block", children: [
             serverInfo.storageFreeGB,
             " GB"
           ] })
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3 text-xs", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Wifi, { className: "w-3.5 h-3.5 text-amber-400" }),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3 text-xs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("h3", { className: "text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Wifi, { className: "w-3.5 h-3.5 text-amber-400" }),
         "Remote Node Configuration"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "grid grid-cols-3 gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "col-span-2 space-y-1", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("label", { className: "text-slate-400", children: "Server IP / Hostname" }),
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "grid grid-cols-3 gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "col-span-2 space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("label", { className: "text-slate-400", children: "Server IP / Hostname" }),
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
             "input",
             {
               type: "text",
@@ -22931,9 +24556,9 @@ var RemoteServerTab = () => {
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "space-y-1", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("label", { className: "text-slate-400", children: "Port" }),
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "space-y-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("label", { className: "text-slate-400", children: "Port" }),
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
             "input",
             {
               type: "text",
@@ -22944,9 +24569,9 @@ var RemoteServerTab = () => {
           )
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "space-y-1", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("label", { className: "text-slate-400", children: "HandBrake Server API Token" }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "space-y-1", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("label", { className: "text-slate-400", children: "HandBrake Server API Token" }),
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
           "input",
           {
             type: "password",
@@ -22957,18 +24582,18 @@ var RemoteServerTab = () => {
         )
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200/90 leading-relaxed", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("strong", { children: "Tip:" }),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200/90 leading-relaxed", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("strong", { children: "Tip:" }),
       " You can transcode videos directly on this device using Apple VideoToolbox, or trigger encoding tasks on your workstation to save mobile battery life."
     ] })
   ] });
 };
 
 // src/App.tsx
-var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
 function App() {
-  const [platform, setPlatform] = (0, import_react12.useState)("web");
-  const [presets, setPresets] = (0, import_react12.useState)(() => {
+  const [platform, setPlatform] = (0, import_react13.useState)("web");
+  const [presets, setPresets] = (0, import_react13.useState)(() => {
     try {
       const saved = localStorage.getItem("hb_custom_presets");
       if (saved) {
@@ -22979,10 +24604,10 @@ function App() {
     }
     return DEFAULT_PRESETS;
   });
-  const [activePreset, setActivePreset] = (0, import_react12.useState)(DEFAULT_PRESETS[0]);
-  const [source, setSource] = (0, import_react12.useState)(null);
-  const [queue, setQueue] = (0, import_react12.useState)([]);
-  const [logs, setLogs] = (0, import_react12.useState)([
+  const [activePreset, setActivePreset] = (0, import_react13.useState)(DEFAULT_PRESETS[0]);
+  const [source, setSource] = (0, import_react13.useState)(null);
+  const [queue, setQueue] = (0, import_react13.useState)([]);
+  const [logs, setLogs] = (0, import_react13.useState)([
     {
       id: "init-1",
       timestamp: "09:41:00",
@@ -23002,12 +24627,12 @@ function App() {
       message: "CoreAudio AAC, MediaMuxer and WebAssembly pipelines ready."
     }
   ]);
-  const [activeTab, setActiveTab] = (0, import_react12.useState)("transcode");
-  const [isEncoding, setIsEncoding] = (0, import_react12.useState)(false);
-  const [activeJobId, setActiveJobId] = (0, import_react12.useState)(null);
-  const [latestEncodedUrl, setLatestEncodedUrl] = (0, import_react12.useState)(void 0);
-  const [latestEncodedJob, setLatestEncodedJob] = (0, import_react12.useState)(null);
-  (0, import_react12.useEffect)(() => {
+  const [activeTab, setActiveTab] = (0, import_react13.useState)("transcode");
+  const [isEncoding, setIsEncoding] = (0, import_react13.useState)(false);
+  const [activeJobId, setActiveJobId] = (0, import_react13.useState)(null);
+  const [latestEncodedUrl, setLatestEncodedUrl] = (0, import_react13.useState)(void 0);
+  const [latestEncodedJob, setLatestEncodedJob] = (0, import_react13.useState)(null);
+  (0, import_react13.useEffect)(() => {
     let isCancelled = false;
     const loadInitialSample = async () => {
       try {
@@ -23238,7 +24863,7 @@ function App() {
   const renderScreen = () => {
     switch (activeTab) {
       case "transcode":
-        return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
           TranscodeTab,
           {
             source,
@@ -23256,7 +24881,7 @@ function App() {
           }
         );
       case "presets":
-        return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
           PresetsTab,
           {
             presets,
@@ -23270,7 +24895,7 @@ function App() {
           }
         );
       case "queue":
-        return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
           QueueTab,
           {
             queue,
@@ -23286,7 +24911,7 @@ function App() {
           }
         );
       case "studio":
-        return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
           VideoStudioTab,
           {
             preset: activePreset,
@@ -23294,17 +24919,42 @@ function App() {
             onUpdatePreset: (updated) => setActivePreset(updated)
           }
         );
+      case "metadata":
+        return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+          MetadataStudioTab,
+          {
+            source,
+            onSelectSource: (src) => setSource(src),
+            onEnqueueLosslessExport: (blob, name) => {
+              const url = URL.createObjectURL(blob);
+              setSource({
+                id: `lossless-${Date.now()}`,
+                name,
+                sizeBytes: blob.size,
+                durationSeconds: source?.durationSeconds || 10,
+                width: source?.width || 1920,
+                height: source?.height || 1080,
+                fps: source?.fps || 30,
+                bitrateKbps: source?.bitrateKbps || 6e3,
+                codec: blob.type || "video/mp4",
+                url,
+                thumbnailUrl: ""
+              });
+              setActiveTab("transcode");
+            }
+          }
+        );
       case "code":
-        return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(NativeCodeTab, {});
+        return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(NativeCodeTab, {});
       case "remote":
-        return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(RemoteServerTab, {});
+        return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(RemoteServerTab, {});
       default:
         return null;
     }
   };
-  const mobileInner = /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { className: "flex-1 flex flex-col min-h-0 overflow-hidden", children: renderScreen() }),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+  const mobileInner = /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { className: "flex-1 flex flex-col min-h-0 overflow-hidden", children: renderScreen() }),
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       IOSBottomBar,
       {
         activeTab,
@@ -23313,15 +24963,15 @@ function App() {
       }
     )
   ] });
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "min-h-screen bg-[#07080b] flex flex-col", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: "min-h-screen bg-[#07080b] flex flex-col", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       PlatformSwitcherBar,
       {
         currentPlatform: platform,
         onSelectPlatform: (p) => setPlatform(p)
       }
     ),
-    platform === "ios" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+    platform === "ios" ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       IOSDeviceFrame,
       {
         activeJob,
@@ -23333,7 +24983,7 @@ function App() {
         onViewQueue: () => setActiveTab("queue"),
         children: mobileInner
       }
-    ) : platform === "android" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+    ) : platform === "android" ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       AndroidDeviceFrame,
       {
         activeJob,
@@ -23344,11 +24994,11 @@ function App() {
         onToggleToWeb: () => setPlatform("web"),
         children: mobileInner
       }
-    ) : platform === "mweb" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MobileWebFrame, { onToggleToWeb: () => setPlatform("web"), children: mobileInner }) : (
+    ) : platform === "mweb" ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(MobileWebFrame, { onToggleToWeb: () => setPlatform("web"), children: mobileInner }) : (
       /* Desktop Web Full Studio Suite */
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "flex-1 flex flex-col bg-[#090a0f] text-slate-100", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PWAInstallBanner, {}),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: "flex-1 flex flex-col bg-[#090a0f] text-slate-100", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(PWAInstallBanner, {}),
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
           StudioHeader,
           {
             activeTab,
@@ -23358,15 +25008,15 @@ function App() {
             isEncoding
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("main", { className: "flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 flex flex-col min-h-0", children: renderScreen() })
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("main", { className: "flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 flex flex-col min-h-0", children: renderScreen() })
       ] })
     )
   ] });
 }
 
 // src/main.tsx
-var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
-(0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime17.jsx)(App, {}));
+var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+(0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime18.jsx)(App, {}));
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -23435,6 +25085,7 @@ lucide-react/dist/esm/createLucideIcon.js:
 lucide-react/dist/esm/icons/apple.js:
 lucide-react/dist/esm/icons/arrow-right.js:
 lucide-react/dist/esm/icons/battery.js:
+lucide-react/dist/esm/icons/camera.js:
 lucide-react/dist/esm/icons/captions.js:
 lucide-react/dist/esm/icons/check.js:
 lucide-react/dist/esm/icons/chevron-down.js:
@@ -23447,12 +25098,14 @@ lucide-react/dist/esm/icons/circle-plus.js:
 lucide-react/dist/esm/icons/circle-x.js:
 lucide-react/dist/esm/icons/clock.js:
 lucide-react/dist/esm/icons/code-xml.js:
+lucide-react/dist/esm/icons/compass.js:
 lucide-react/dist/esm/icons/copy.js:
 lucide-react/dist/esm/icons/cpu.js:
 lucide-react/dist/esm/icons/crop.js:
 lucide-react/dist/esm/icons/download.js:
 lucide-react/dist/esm/icons/ellipsis-vertical.js:
 lucide-react/dist/esm/icons/external-link.js:
+lucide-react/dist/esm/icons/file-check.js:
 lucide-react/dist/esm/icons/file-code.js:
 lucide-react/dist/esm/icons/file-play.js:
 lucide-react/dist/esm/icons/film.js:
@@ -23462,6 +25115,7 @@ lucide-react/dist/esm/icons/info.js:
 lucide-react/dist/esm/icons/layers.js:
 lucide-react/dist/esm/icons/list-ordered.js:
 lucide-react/dist/esm/icons/lock.js:
+lucide-react/dist/esm/icons/map-pin.js:
 lucide-react/dist/esm/icons/maximize-2.js:
 lucide-react/dist/esm/icons/monitor.js:
 lucide-react/dist/esm/icons/pause.js:
@@ -23472,14 +25126,18 @@ lucide-react/dist/esm/icons/rotate-cw.js:
 lucide-react/dist/esm/icons/search.js:
 lucide-react/dist/esm/icons/server.js:
 lucide-react/dist/esm/icons/share-2.js:
+lucide-react/dist/esm/icons/shield-alert.js:
+lucide-react/dist/esm/icons/shield-check.js:
 lucide-react/dist/esm/icons/sliders-vertical.js:
 lucide-react/dist/esm/icons/sliders-horizontal.js:
 lucide-react/dist/esm/icons/smartphone.js:
 lucide-react/dist/esm/icons/sparkles.js:
 lucide-react/dist/esm/icons/split.js:
 lucide-react/dist/esm/icons/square-plus.js:
+lucide-react/dist/esm/icons/tag.js:
 lucide-react/dist/esm/icons/terminal.js:
 lucide-react/dist/esm/icons/trash-2.js:
+lucide-react/dist/esm/icons/triangle-alert.js:
 lucide-react/dist/esm/icons/upload.js:
 lucide-react/dist/esm/icons/video.js:
 lucide-react/dist/esm/icons/volume-2.js:
